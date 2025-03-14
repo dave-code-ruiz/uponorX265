@@ -1,0 +1,12 @@
+{
+  "domain": "uponor",
+  "name": "Uponor",
+  "documentation": "https://github.com/asev/homeassistant-uponor",
+  "issue_tracker": "https://github.com/asev/homeassistant-uponor/issues",
+  "version": "1.0.0",
+  "config_flow": true,
+  "dependencies": [],
+  "codeowners": ["@asev","@dave-code-ruiz","@SmartuserHA"],
+  "requirements": ["UponorJnap==0.1"]
+}
+
