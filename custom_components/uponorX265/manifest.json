@@ -1,8 +1,8 @@
 {
-  "domain": "uponor",
-  "name": "Uponor",
-  "documentation": "https://github.com/asev/homeassistant-uponor",
-  "issue_tracker": "https://github.com/asev/homeassistant-uponor/issues",
+  "domain": "uponorX265",
+  "name": "UponorX265",
+  "documentation": "https://github.com/dave-code-ruiz/uponorX265",
+  "issue_tracker": "https://github.com/dave-code-ruiz/uponorX265/issues",
   "version": "1.0.0",
   "config_flow": true,
   "dependencies": [],
