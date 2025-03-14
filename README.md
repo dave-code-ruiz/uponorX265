@@ -21,13 +21,13 @@ It should work with all controllers that support this module.
 1. Setup and configure your system on Uponor Smatrix mobile app. Make sure you are able to control temperature via the app.
 Your Uponor has to be connected to the local network and you should know it's IP address.
 
-2. Install "Uponor Smatrix Pulse" integration on HACS
+2. Install "Uponor Smatrix X-265 module R-208" integration on HACS
 
 OR copy the custom_components folder to your own Home Assistant /config folder.
 
 3. Restart Home Assistant server
 
-4. Go to Configuration > Integration" > Add Integration > Uponor. Finish the setup.
+4. Go to Configuration > Integration" > Add Integration > UponorX265. Finish the setup.
    
 ## Structure
 
