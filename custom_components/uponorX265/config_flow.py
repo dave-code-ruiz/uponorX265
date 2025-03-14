@@ -71,7 +71,7 @@ class DomainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         data = {**self._entry_data, **user_input}
 
         return self.async_create_entry(
-            title="Uponor",
+            title="UponorX265",
             data=data
         )
 

@@ -2,12 +2,12 @@ from datetime import timedelta
 
 CONF_UNIQUE_ID = "unique_id"
 
-DOMAIN = "uponor"
+DOMAIN = "uponorX265"
 
 SIGNAL_UPONOR_STATE_UPDATE = "uponor_state_update"
 SCAN_INTERVAL = timedelta(seconds=30)
 
-STORAGE_KEY = "uponor_data"
+STORAGE_KEY = "uponorX265_data"
 STORAGE_VERSION = 1
 
 DEVICE_MANUFACTURER = "Uponor"

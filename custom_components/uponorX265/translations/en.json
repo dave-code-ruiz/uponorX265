@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "Uponor",
+        "title": "UponorX265",
         "description": "Set up Uponor heating/cooling system",
         "data": {
           "host": "Host or IP address of the Uponor controller",
