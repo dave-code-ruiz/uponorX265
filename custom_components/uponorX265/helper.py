@@ -11,7 +11,7 @@ from homeassistant.const import (
 
 
 def create_unique_id_from_user_input(user_input):
-    if CONF_UNIQUE_ID not in user_input and user_input[CONF_UNIQUE_ID] != "":
+    if CONF_UNIQUE_ID in user_input and user_input[CONF_UNIQUE_ID] != "":
         return user_input[CONF_UNIQUE_ID]
 
     return None
