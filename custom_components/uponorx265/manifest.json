@@ -1,12 +1,12 @@
 {
   "domain": "uponorx265",
   "name": "Uponorx265",
-  "documentation": "https://github.com/dave-code-ruiz/uponorX265",
-  "issue_tracker": "https://github.com/dave-code-ruiz/uponorX265/issues",
-  "version": "1.0.0",
-  "config_flow": true,
-  "iot_class": "local_polling",
-  "dependencies": [],
   "codeowners": ["@asev","@dave-code-ruiz","@SmartuserHA"],
-  "requirements": ["UponorJnap==0.1"]
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/dave-code-ruiz/uponorX265",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/dave-code-ruiz/uponorX265/issues",
+  "requirements": ["UponorJnap==0.1"],
+  "version": "1.0.1"
 }
