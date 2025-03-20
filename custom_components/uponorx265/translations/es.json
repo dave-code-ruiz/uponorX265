@@ -1,0 +1,95 @@
+{
+    "config": {
+      "step": {
+        "user": {
+          "title": "Uponorx265",
+          "description": "Configurar el sistema de calefacción/refrigeración Uponor",
+          "data": {
+            "host": "Host o dirección IP del controlador Uponor",
+            "name": "Nombre de la instancia de la integración",
+            "unique_id": "Identificador único opcional (debe ser único entre las entradas)"
+          }
+        },
+        "rooms": {
+          "title": "Termostatos Uponor",
+          "description": "Asigne nombres a los termostatos de Uponor",
+          "data": {
+            "c1_t1": "Nombre del Termostato C1 1",
+            "c1_t2": "Nombre del Termostato C1 2",
+            "c1_t3": "Nombre del Termostato C1 3",
+            "c1_t4": "Nombre del Termostato C1 4",
+            "c1_t5": "Nombre del Termostato C1 5",
+            "c1_t6": "Nombre del Termostato C1 6",
+            "c1_t7": "Nombre del Termostato C1 7",
+            "c1_t8": "Nombre del Termostato C1 8",
+            "c1_t9": "Nombre del Termostato C1 9",
+            "c1_t10": "Nombre del Termostato C1 10",
+            "c1_t11": "Nombre del Termostato C1 11",
+            "c1_t12": "Nombre del Termostato C1 12",
+  
+            "c2_t1": "Nombre del Termostato C2 1",
+            "c2_t2": "Nombre del Termostato C2 2",
+            "c2_t3": "Nombre del Termostato C2 3",
+            "c2_t4": "Nombre del Termostato C2 4",
+            "c2_t5": "Nombre del Termostato C2 5",
+            "c2_t6": "Nombre del Termostato C2 6",
+            "c2_t7": "Nombre del Termostato C2 7",
+            "c2_t8": "Nombre del Termostato C2 8",
+            "c2_t9": "Nombre del Termostato C2 9",
+            "c2_t10": "Nombre del Termostato C2 10",
+            "c2_t11": "Nombre del Termostato C2 11",
+            "c2_t12": "Nombre del Termostato C2 12",
+  
+            "c3_t1": "Nombre del Termostato C3 1",
+            "c3_t2": "Nombre del Termostato C3 2",
+            "c3_t3": "Nombre del Termostato C3 3",
+            "c3_t4": "Nombre del Termostato C3 4",
+            "c3_t5": "Nombre del Termostato C3 5",
+            "c3_t6": "Nombre del Termostato C3 6",
+            "c3_t7": "Nombre del Termostato C3 7",
+            "c3_t8": "Nombre del Termostato C3 8",
+            "c3_t9": "Nombre del Termostato C3 9",
+            "c3_t10": "Nombre del Termostato C3 10",
+            "c3_t11": "Nombre del Termostato C3 11",
+            "c3_t12": "Nombre del Termostato C3 12",
+  
+            "c4_t1": "Nombre del Termostato C4 1",
+            "c4_t2": "Nombre del Termostato C4 2",
+            "c4_t3": "Nombre del Termostato C4 3",
+            "c4_t4": "Nombre del Termostato C4 4",
+            "c4_t5": "Nombre del Termostato C4 5",
+            "c4_t6": "Nombre del Termostato C4 6",
+            "c4_t7": "Nombre del Termostato C4 7",
+            "c4_t8": "Nombre del Termostato C4 8",
+            "c4_t9": "Nombre del Termostato C4 9",
+            "c4_t10": "Nombre del Termostato C4 10",
+            "c4_t11": "Nombre del Termostato C4 11",
+            "c4_t12": "Nombre del Termostato C4 12"
+          }
+        }
+      },
+      "error": {
+        "invalid_host": "Nombre del host o dirección IP no válida."
+      },
+      "abort": {}
+    },
+    "services": {
+      "set_variable": {
+        "name": "Establecer Variable",
+        "description": "Envía una actualización de variable a la API de Uponor",
+        "fields": {
+          "var_name": {
+            "name": "Nombre de la Variable",
+            "description": "Nombre de la variable que deseas actualizar",
+            "example": "sys_heat_cool_mode"
+          },
+          "var_value": {
+            "name": "Valor de la Variable",
+            "description": "Valor que deseas asignar a la variable",
+            "example": 0
+          }
+        }
+      }
+    }
+  }
+  

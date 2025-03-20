@@ -72,5 +72,23 @@
       "invalid_host": "Invalid hostname or IP address."
     },
     "abort": {}
+  },
+  "services": {
+    "set_variable": {
+      "name": "Set Variable",
+      "description": "Send a variable update to the Uponor API",
+      "fields": {
+        "var_name": {
+          "name": "Variable Name",
+          "description": "Name of the variable you want to update",
+          "example": "sys_heat_cool_mode"
+        },
+        "var_value": {
+          "name": "Variable Value",
+          "description": "Value you want to assign to the variable",
+          "example": 0
+        }
+      }
+    }
   }
 }
