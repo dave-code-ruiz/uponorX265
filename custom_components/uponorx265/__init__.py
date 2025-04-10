@@ -16,6 +16,7 @@ from .const import (
     DOMAIN,
     SIGNAL_UPONOR_STATE_UPDATE,
     SCAN_INTERVAL,
+    UNAVAILABLE_THRESHOLD,
     STORAGE_KEY,
     STORAGE_VERSION,
     STATUS_OK,
@@ -52,7 +53,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
 
     # Create the state proxy in the executor thread to avoid blocking the event loop
-    state_proxy = await hass.async_add_executor_job(lambda: UponorStateProxy(hass, host, store, unique_id))
+    state_proxy = await hass.async_add_executor_job(lambda: UponorStateProxy(hass, host, store, unique_id, config_entry))
     await state_proxy.async_update()
     thermostats = state_proxy.get_active_thermostats()
 
@@ -90,7 +91,7 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
     return unload_ok
 
 class UponorStateProxy:
-    def __init__(self, hass, host, store, unique_id):
+    def __init__(self, hass, host, store, unique_id, config_entry):
         self._hass = hass
         self._client = UponorJnap(host)
         self._store = store
@@ -98,6 +99,9 @@ class UponorStateProxy:
         self._storage_data = {}
         self.next_sp_from_dt = None
         self._unique_id = unique_id
+        self._config_entry = config_entry
+        self._last_successful_update = None
+        self._unavailable_since = None
 
     # Thermostats config
 
@@ -323,9 +327,17 @@ class UponorStateProxy:
         try:
             self.next_sp_from_dt = dt_util.now()
             self._data = await self._hass.async_add_executor_job(lambda: self._client.get_data())
+            self._last_successful_update = dt_util.now()
+            self._unavailable_since = None
             self._hass.async_create_task(self.call_state_update())
         except Exception as ex:
             _LOGGER.error("Uponor thermostat was unable to update: %s", ex)
+            if self._unavailable_since is None:
+                self._unavailable_since = dt_util.now()
+            elif dt_util.now() - self._unavailable_since > UNAVAILABLE_THRESHOLD:
+                _LOGGER.warning("Uponor entities have been unavailable for more than 2 minutes. Triggering reload...")
+                await self._hass.config_entries.async_reload(self._config_entry.entry_id)
+                return
         
     async def async_set_variable(self, var_name, var_value):
         _LOGGER.debug("Called set variable: name: %s, value: %s, data: %s", var_name, var_value, self._data)
