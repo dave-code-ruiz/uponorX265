@@ -9,7 +9,6 @@ from homeassistant.const import CONF_HOST
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
-from UponorJnap import UponorJnap
 import homeassistant.util.dt as dt_util
 
 from .const import (
@@ -35,6 +34,7 @@ from .const import (
 )
 from homeassistant.util.unit_system import UnitOfTemperature
 
+from .jnap import UponorJnap
 from .helper import get_unique_id_from_config_entry
 
 

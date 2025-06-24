@@ -2,12 +2,12 @@ from homeassistant import config_entries
 import voluptuous as vol
 import logging
 
-from UponorJnap import UponorJnap
-
 from homeassistant.const import (
     CONF_HOST,
     CONF_NAME
 )
+
+from .jnap import UponorJnap
 
 from .const import (
     DOMAIN,
