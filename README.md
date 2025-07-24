@@ -58,6 +58,19 @@ Uponor API does not support turn off action. When climate entity is turned off o
 the temperature is set to the minimum (default 5℃) when heating mode is active
 and to the maximum (default 35℃) when cooling mode is active.
 
+## Enable debug mode
+
+Use debug log to see more information of posible errors and post it in your issue description
+
+In configuration.yaml:
+
+```
+logger:
+  default: info
+  logs:
+    custom_components.uponorx265: debug
+```
+
 ## Older module
 
 In case you have older Uponor X-165 module visit: https://github.com/dave-code-ruiz/uhomeuponor
