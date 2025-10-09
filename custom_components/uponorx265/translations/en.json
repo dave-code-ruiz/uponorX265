@@ -86,7 +86,7 @@
         "var_value": {
           "name": "Variable Value",
           "description": "Value you want to assign to the variable",
-          "example": 0
+          "example": "0"
         }
       }
     }
