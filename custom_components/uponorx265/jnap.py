@@ -26,7 +26,7 @@ class UponorJnap:
         payload = {
             "vars": list(map(lambda k: {
                 "waspVarName": k,
-                "waspVarValue": data[k],
+                "waspVarValue": str(data[k]),
             }, data.keys()))
         }
         r_json = self.post(headers={"x-jnap-action": "http://phyn.com/jnap/uponorsky/SetAttributes"}, payload=payload)
