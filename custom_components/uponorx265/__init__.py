@@ -44,6 +44,10 @@ PLATFORMS = [Platform.CLIMATE, Platform.SWITCH, Platform.SENSOR]
 
 # Import climate platform upfront to avoid blocking import during async execution
 from homeassistant.components import climate
+from homeassistant.components.climate.const import (
+    PRESET_AWAY,
+    PRESET_ECO
+)
 
 TEMP_CELSIUS = UnitOfTemperature.CELSIUS  # Updated constant
 
@@ -277,6 +281,14 @@ class UponorStateProxy:
         await self._store.async_save(self._storage_data)
         off_temp = self.get_max_limit(thermostat) if self.is_cool_enabled() else self.get_min_limit(thermostat)
         await self.async_set_setpoint(thermostat, off_temp)
+
+    async def async_set_preset_mode(self, preset_mode):
+        if preset_mode == PRESET_ECO:
+            await self.async_set_away(False)
+
+        elif preset_mode == PRESET_AWAY:
+            await self.async_set_away(True)
+
 
     # Cooling
 

@@ -49,6 +49,15 @@ class UponorClimate(ClimateEntity):
         self._is_on = not ((is_cool and temp >= self.max_temp) or (not is_cool and temp <= self.min_temp))
 
     @property
+    def device_state_attributes(self):
+        return {
+            'id': self._thermostat,
+            'status': self._state_proxy.get_status(self._thermostat),
+            'pulse_width_modulation': self._state_proxy.get_pwm(self._thermostat),
+            'eco_setback': self._state_proxy.get_eco_setback(self._thermostat),
+        }
+
+    @property
     def device_info(self):
         return {
             "identifiers": {(self._unique_instance_id, self._state_proxy.get_thermostat_id(self._thermostat))},
@@ -167,6 +176,10 @@ class UponorClimate(ClimateEntity):
         elif hvac_mode in [HVACMode.HEAT, HVACMode.COOL] and not self._is_on:
             await self._state_proxy.async_turn_on(self._thermostat)
             self._is_on = True
+
+    # Support setting preset_mode
+    async def async_set_preset_mode(self, preset_mode):
+        await self._state_proxy.async_set_preset_mode(preset_mode)
 
     async def async_set_temperature(self, **kwargs):
         temp = kwargs.get(ATTR_TEMPERATURE)
