@@ -12,8 +12,9 @@ from homeassistant.const import (
 from homeassistant.components.climate.const import (
     HVACMode,
     HVACAction,
-    PRESET_AWAY,
     PRESET_ECO,
+    PRESET_AWAY,
+    PRESET_COMFORT,
     ClimateEntityFeature
 )
 
@@ -105,7 +106,7 @@ class UponorClimate(ClimateEntity):
         return [HVACMode.COOL, HVACMode.OFF] if self._state_proxy.is_cool_enabled() else [HVACMode.HEAT, HVACMode.OFF]
     @property
     def preset_modes(self):
-        return [PRESET_ECO, PRESET_AWAY]
+        return [PRESET_ECO, PRESET_COMFORT]
     
     @property
     def current_humidity(self):
@@ -143,7 +144,8 @@ class UponorClimate(ClimateEntity):
             return PRESET_ECO
         if self._state_proxy.is_away():
             return PRESET_AWAY
-        return None
+        else:
+            return PRESET_COMFORT
     
     @property
     def hvac_mode(self):
@@ -179,7 +181,13 @@ class UponorClimate(ClimateEntity):
 
     # Support setting preset_mode
     async def async_set_preset_mode(self, preset_mode):
-        await self._state_proxy.async_set_preset_mode(preset_mode)
+        if preset_mode != PRESET_ECO:
+            await self._state_proxy.async_set_preset_mode(preset_mode)
+        else:
+            if self._state_proxy.is_away():
+                preset_mode = PRESET_COMFORT
+            else:
+                preset_mode = PRESET_AWAY
 
     async def async_set_temperature(self, **kwargs):
         temp = kwargs.get(ATTR_TEMPERATURE)

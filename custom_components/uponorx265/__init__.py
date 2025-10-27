@@ -46,7 +46,7 @@ PLATFORMS = [Platform.CLIMATE, Platform.SWITCH, Platform.SENSOR]
 from homeassistant.components import climate
 from homeassistant.components.climate.const import (
     PRESET_AWAY,
-    PRESET_ECO
+    PRESET_COMFORT
 )
 
 TEMP_CELSIUS = UnitOfTemperature.CELSIUS  # Updated constant
@@ -283,10 +283,10 @@ class UponorStateProxy:
         await self.async_set_setpoint(thermostat, off_temp)
 
     async def async_set_preset_mode(self, preset_mode):
-        if preset_mode == PRESET_ECO:
+        if preset_mode == PRESET_AWAY:
             await self.async_set_away(False)
 
-        elif preset_mode == PRESET_AWAY:
+        elif preset_mode == PRESET_COMFORT:
             await self.async_set_away(True)
 
 
