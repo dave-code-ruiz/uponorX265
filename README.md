@@ -5,7 +5,7 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/hacs/integration)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 
-Uponor Smatrix Pulse X-265 R-208 heating/cooling integration for Home Assistant.
+Uponor Smatrix Pulse X-265 or X-245 with R-208 heating/cooling integration for Home Assistant.
 
 ## First Note
 
