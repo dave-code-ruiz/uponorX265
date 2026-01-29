@@ -189,6 +189,13 @@ class UponorStateProxy:
             temp = math.floor((int(self._data[var]) - 320) / 1.8) / 10
             return math.floor((int(self._data[var]) - self.get_active_setback(thermostat, temp) - 320) / 1.8) / 10
 
+    def get_setpoint_raw(self, thermostat):
+        """Get the raw setpoint value (with offset applied, as stored in the system)"""
+        var = thermostat + '_setpoint'
+        if var in self._data:
+            return math.floor((int(self._data[var]) - 320) / 1.8) / 10
+        return None
+
     def get_active_setback(self, thermostat, temp):
         if temp == self.get_min_limit(thermostat) or temp == self.get_max_limit(thermostat):
             return 0

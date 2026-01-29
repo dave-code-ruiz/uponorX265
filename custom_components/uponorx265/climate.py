@@ -45,9 +45,10 @@ class UponorClimate(ClimateEntity):
         self._state_proxy = state_proxy
         self._thermostat = thermostat
         self._name = name
-        temp = self._state_proxy.get_setpoint(self._thermostat)
+        # Use raw setpoint (with offset) to determine on/off state
+        temp_raw = self._state_proxy.get_setpoint_raw(self._thermostat)
         is_cool = self._state_proxy.is_cool_enabled()
-        self._is_on = not ((is_cool and temp >= self.max_temp) or (not is_cool and temp <= self.min_temp))
+        self._is_on = not ((is_cool and temp_raw >= self.max_temp) or (not is_cool and temp_raw <= self.min_temp))
 
     @property
     def device_state_attributes(self):
@@ -85,9 +86,10 @@ class UponorClimate(ClimateEntity):
 
     @callback
     def _update_callback(self):
-        temp = self._state_proxy.get_setpoint(self._thermostat)
+        # Use raw setpoint (with offset) to determine on/off state
+        temp_raw = self._state_proxy.get_setpoint_raw(self._thermostat)
         is_cool = self._state_proxy.is_cool_enabled()
-        self._is_on = not ((is_cool and temp >= self.max_temp) or (not is_cool and temp <= self.min_temp))
+        self._is_on = not ((is_cool and temp_raw >= self.max_temp) or (not is_cool and temp_raw <= self.min_temp))
         self.async_schedule_update_ha_state(True)
 
     @property
