@@ -1,4 +1,6 @@
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import callback
 import voluptuous as vol
 import logging
 
@@ -98,3 +100,47 @@ class DomainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if var in self._api_response:
             return self._api_response[var]
         return thermostat
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(entry: ConfigEntry):
+        return OptionsFlowHandler(entry)
+
+
+class OptionsFlowHandler(config_entries.OptionsFlow):
+
+    def __init__(self, config_entry):
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(self, _user_input=None):
+        """Manage the options."""
+        return await self.async_step_user()
+    
+    async def async_step_user(self, user_input=None):
+        """Handle a flow initialized by the user."""
+        _LOGGER.debug("Options flow user step: %s", user_input)
+        _LOGGER.info("Init Option config step uponorx265")
+        errors = {}
+        options = self.config_entry.data
+        
+        if user_input is not None:
+            data = {
+                CONF_HOST: user_input[CONF_HOST],
+            }
+            _LOGGER.debug("user_input data: %s, id: %s", data, self.config_entry.entry_id)
+            title = "Uponorx265"
+            return self.async_create_entry(
+                title=title, 
+                data=data
+            )
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_HOST, default=options.get(CONF_HOST)): str,
+                }
+            ), 
+            errors=errors
+        )

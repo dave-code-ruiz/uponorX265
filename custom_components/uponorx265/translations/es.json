@@ -73,6 +73,17 @@
       },
       "abort": {}
     },
+    "options": {
+      "step": {
+        "user": {
+          "title": "Uponorx265",
+          "description": "Configurar opciones del sistema Uponor",
+          "data": {
+            "host": "Host o dirección IP del controlador Uponor"
+          }
+        }
+      }
+    },
     "services": {
       "set_variable": {
         "name": "Establecer Variable",
