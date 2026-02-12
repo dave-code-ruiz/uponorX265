@@ -122,12 +122,11 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         _LOGGER.debug("Options flow user step: %s", user_input)
         _LOGGER.info("Init Option config step uponorx265")
         errors = {}
-        options = self.config_entry.data
+        current_data = self.config_entry.data
         
         if user_input is not None:
-            data = {
-                CONF_HOST: user_input[CONF_HOST],
-            }
+            # Preserve all existing data and only update CONF_HOST
+            data = {**current_data, CONF_HOST: user_input[CONF_HOST]}
             _LOGGER.debug("user_input data: %s, id: %s", data, self.config_entry.entry_id)
             title = "Uponorx265"
             return self.async_create_entry(
@@ -139,7 +138,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_HOST, default=options.get(CONF_HOST)): str,
+                    vol.Required(CONF_HOST, default=current_data.get(CONF_HOST)): str,
                 }
             ), 
             errors=errors

@@ -52,6 +52,11 @@ from homeassistant.components.climate.const import (
 TEMP_CELSIUS = UnitOfTemperature.CELSIUS  # Updated constant
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
+    # Sync options to data if they differ
+    if config_entry.options:
+        if config_entry.data != config_entry.options:
+            hass.config_entries.async_update_entry(config_entry, data=config_entry.options)
+    
     host = config_entry.data[CONF_HOST]
     unique_id = get_unique_id_from_config_entry(config_entry)
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
