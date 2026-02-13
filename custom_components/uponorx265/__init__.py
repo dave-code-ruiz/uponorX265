@@ -9,6 +9,7 @@ from homeassistant.const import CONF_HOST
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers import device_registry, entity_registry
 import homeassistant.util.dt as dt_util
 
 from .const import (
@@ -55,6 +56,10 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     # Sync options to data if they differ
     if config_entry.options:
         if config_entry.data != config_entry.options:
+            dev_reg = device_registry.async_get(hass)
+            ent_reg = entity_registry.async_get(hass)
+            dev_reg.async_clear_config_entry(config_entry.entry_id)
+            ent_reg.async_clear_config_entry(config_entry.entry_id)
             hass.config_entries.async_update_entry(config_entry, data=config_entry.options)
     
     host = config_entry.data[CONF_HOST]
@@ -91,6 +96,10 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Update options."""
     _LOGGER.debug("Update setup entry: %s, data: %s, options: %s", entry.entry_id, entry.data, entry.options)
+    # Unload first to ensure clean state (if loaded), then reload
+    # This handles the case where setup may have failed initially
+    if entry.state.name in ("LOADED", "SETUP_RETRY"):
+        await hass.config_entries.async_unload(entry.entry_id)
     await hass.config_entries.async_reload(entry.entry_id)
 
 async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
