@@ -1,3 +1,4 @@
+import asyncio
 import math
 import logging
 
@@ -10,6 +11,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers import device_registry, entity_registry
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.util.dt as dt_util
 
 from .const import (
@@ -17,6 +19,7 @@ from .const import (
     SIGNAL_UPONOR_STATE_UPDATE,
     SCAN_INTERVAL,
     UNAVAILABLE_THRESHOLD,
+    RELOAD_COOLDOWN,
     STORAGE_KEY,
     STORAGE_VERSION,
     STATUS_OK,
@@ -61,13 +64,13 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
             dev_reg.async_clear_config_entry(config_entry.entry_id)
             ent_reg.async_clear_config_entry(config_entry.entry_id)
             hass.config_entries.async_update_entry(config_entry, data=config_entry.options)
-    
+
     host = config_entry.data[CONF_HOST]
     unique_id = get_unique_id_from_config_entry(config_entry)
     store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
+    session = async_get_clientsession(hass)
 
-    # Create the state proxy in the executor thread to avoid blocking the event loop
-    state_proxy = await hass.async_add_executor_job(lambda: UponorStateProxy(hass, host, store, unique_id, config_entry))
+    state_proxy = UponorStateProxy(hass, host, session, store, unique_id, config_entry)
     await state_proxy.async_update()
     thermostats = state_proxy.get_active_thermostats()
 
@@ -109,9 +112,9 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
     return unload_ok
 
 class UponorStateProxy:
-    def __init__(self, hass, host, store, unique_id, config_entry):
+    def __init__(self, hass, host, session, store, unique_id, config_entry):
         self._hass = hass
-        self._client = UponorJnap(host)
+        self._client = UponorJnap(host, session)
         self._store = store
         self._data = {}
         self._storage_data = {}
@@ -120,6 +123,9 @@ class UponorStateProxy:
         self._config_entry = config_entry
         self._last_successful_update = None
         self._unavailable_since = None
+        self._update_lock = asyncio.Lock()
+        self._reload_in_progress = False
+        self._last_reload_attempt = None
 
     # Thermostats config
 
@@ -275,8 +281,8 @@ class UponorStateProxy:
         for thermostat in self._hass.data[self._unique_id]['thermostats']:
             if self.get_setpoint(thermostat) == self.get_min_limit(thermostat):
                 await self.async_set_setpoint(thermostat, self.get_max_limit(thermostat))
-        
-        await self._hass.async_add_executor_job(lambda: self._client.send_data({'sys_heat_cool_mode': '1'}))
+
+        await self._client.send_data({'sys_heat_cool_mode': '1'})
         self._data['sys_heat_cool_mode'] = '1'
         self._hass.async_create_task(self.call_state_update())
 
@@ -285,7 +291,7 @@ class UponorStateProxy:
             if self.get_setpoint(thermostat) == self.get_max_limit(thermostat):
                 await self.async_set_setpoint(thermostat, self.get_min_limit(thermostat))
 
-        await self._hass.async_add_executor_job(lambda: self._client.send_data({'sys_heat_cool_mode': '0'}))
+        await self._client.send_data({'sys_heat_cool_mode': '0'})
         self._data['sys_heat_cool_mode'] = '0'
         self._hass.async_create_task(self.call_state_update())
 
@@ -332,7 +338,7 @@ class UponorStateProxy:
     async def async_set_away(self, is_away):
         var = 'sys_forced_eco_mode'
         data = "1" if is_away else "0"
-        await self._hass.async_add_executor_job(lambda: self._client.send_data({var: data}))
+        await self._client.send_data({var: data})
         self._data[var] = data
         self._hass.async_create_task(self.call_state_update())
 
@@ -357,46 +363,52 @@ class UponorStateProxy:
 
     # Rest
     async def async_update(self,_=None):
-        try:
-            self.next_sp_from_dt = dt_util.now()
-            self._data = await self._hass.async_add_executor_job(lambda: self._client.get_data())
-            self._last_successful_update = dt_util.now()
-            self._unavailable_since = None
-            self._hass.async_create_task(self.call_state_update())
-        except Exception as ex:
-            _LOGGER.error("Uponor thermostat was unable to update: %s", ex)
-            if self._unavailable_since is None:
-                self._unavailable_since = dt_util.now()
-            elif dt_util.now() - self._unavailable_since > UNAVAILABLE_THRESHOLD:
-                _LOGGER.warning("Uponor entities have been unavailable for more than 2 minutes. Triggering reload...")
-                await self._hass.config_entries.async_reload(self._config_entry.entry_id)
+        if self._update_lock.locked():
+            _LOGGER.debug("Skipping Uponor update because a previous update is still running")
+            return
+
+        async with self._update_lock:
+            try:
+                self.next_sp_from_dt = dt_util.now()
+                self._data = await self._client.get_data()
+                self._last_successful_update = dt_util.now()
+                self._unavailable_since = None
+                self._hass.async_create_task(self.call_state_update())
                 return
-        
+            except Exception as ex:
+                _LOGGER.error("Uponor thermostat was unable to update: %s", ex)
+
+            now = dt_util.now()
+            if self._unavailable_since is None:
+                self._unavailable_since = now
+                return
+
+            if now - self._unavailable_since <= UNAVAILABLE_THRESHOLD:
+                return
+
+            if self._reload_in_progress:
+                return
+
+            if self._last_reload_attempt is not None and now - self._last_reload_attempt <= RELOAD_COOLDOWN:
+                return
+
+            self._reload_in_progress = True
+            self._last_reload_attempt = now
+            _LOGGER.warning("Uponor entities have been unavailable for more than 2 minutes. Triggering reload...")
+            try:
+                await self._hass.config_entries.async_reload(self._config_entry.entry_id)
+            finally:
+                self._reload_in_progress = False
+
     async def async_set_variable(self, var_name, var_value):
         _LOGGER.debug("Called set variable: name: %s, value: %s, data: %s", var_name, var_value, self._data)
-        await self._hass.async_add_executor_job(lambda: self._client.send_data({var_name: var_value}))
+        await self._client.send_data({var_name: var_value})
         self._data[var_name] = var_value
         self._hass.async_create_task(self.call_state_update())
 
     async def async_set_setpoint(self, thermostat, temp):
         var = thermostat + '_setpoint'
         setpoint = int(temp * 18 + self.get_active_setback(thermostat, temp) + 320)
-        await self._hass.async_add_executor_job(lambda: self._client.send_data({var: setpoint}))
+        await self._client.send_data({var: setpoint})
         self._data[var] = setpoint
         self._hass.async_create_task(self.call_state_update())
-    
-"""    async def async_set_setpoint(self, thermostat, temperature):
-        # Async wrapper for set_setpoint.
-        await self._hass.async_add_executor_job(self.set_setpoint, thermostat, temperature)
-        
-    def set_setpoint(self, thermostat, temp):
-        var = thermostat + '_setpoint'
-        setpoint = int(temp * 18 + self.get_active_setback(thermostat, temp) + 320)
-        self._client.send_data({var: setpoint})
-        self._data[var] = setpoint
-
-        # Ensure async update
-        if hasattr(self, "call_state_update"):  
-            self._hass.loop.call_soon_threadsafe(self._hass.async_create_task, self.call_state_update())
-        else:
-            _LOGGER.warning("call_state_update() method not found in UponorStateProxy") """

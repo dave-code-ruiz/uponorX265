@@ -1,0 +1,4 @@
+*.log
+.vs/
+**/__pycache__/
+*.pyc
