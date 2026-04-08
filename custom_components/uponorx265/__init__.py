@@ -237,6 +237,17 @@ class UponorStateProxy:
 
         return thermostat
 
+    def get_model(self):
+        var = 'cust_SW_version_update'
+        if var in self._data:
+            return self._data[var].split('_')[0]
+        return '-'
+
+    def get_version(self, thermostat):
+        var = thermostat[0:3] + 'sw_version'
+        if var in self._data:
+            return self._data[var].split('_')[0]
+
     # Temperatures & humidity
 
     def get_temperature(self, thermostat):
