@@ -56,7 +56,11 @@ class UponorFloorTemperatureSensor(SensorEntity):
     @property
     def should_poll(self):
         return False
-    
+
+    @property
+    def available(self):
+        return self._state_proxy.is_available() and self._state_proxy.has_floor_temperature(self._thermostat)
+
     @property
     def native_value(self):
         return self._state_proxy.get_floor_temperature(self._thermostat)
@@ -95,6 +99,10 @@ class UponorRoomCurrentTemperatureSensor(SensorEntity):
             "model": self._state_proxy.get_model(),
             "sw_version": self._state_proxy.get_version(self._thermostat)
         }
+
+    @property
+    def available(self):
+        return self._state_proxy.is_available()
 
     @property
     def native_value(self):
@@ -140,7 +148,7 @@ class UponorHumiditySensor(SensorEntity):
     @property
     def available(self):
         """Return True if the sensor is available."""
-        return self._state_proxy.has_humidity_sensor(self._thermostat)
+        return self._state_proxy.is_available() and self._state_proxy.has_humidity_sensor(self._thermostat)
 
     @property
     def native_value(self):

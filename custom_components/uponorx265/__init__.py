@@ -71,8 +71,14 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     session = async_get_clientsession(hass)
 
     state_proxy = UponorStateProxy(hass, host, session, store, unique_id, config_entry)
-    await state_proxy.async_update()
-    thermostats = state_proxy.get_active_thermostats()
+    await state_proxy.async_load_storage()
+
+    thermostats = state_proxy.get_cached_thermostats()
+    if thermostats:
+        hass.async_create_task(state_proxy.async_update())
+    else:
+        await state_proxy.async_update()
+        thermostats = state_proxy.get_active_thermostats()
 
     hass.data[unique_id] = {
         "state_proxy": state_proxy,
@@ -118,6 +124,7 @@ class UponorStateProxy:
         self._store = store
         self._data = {}
         self._storage_data = {}
+        self._storage_metadata = {}
         self.next_sp_from_dt = None
         self._unique_id = unique_id
         self._config_entry = config_entry
@@ -126,6 +133,69 @@ class UponorStateProxy:
         self._update_lock = asyncio.Lock()
         self._reload_in_progress = False
         self._last_reload_attempt = None
+
+    def _get_room_name_from_data(self, thermostat):
+        var = 'cust_' + thermostat + '_name'
+        if var in self._data:
+            return self._data[var]
+        return None
+
+    def _get_thermostat_id_from_data(self, thermostat):
+        var = thermostat.replace('T', 'thermostat') + '_id'
+        if var in self._data:
+            return self._data[var]
+        return None
+
+    def _compose_storage_payload(self):
+        payload = dict(self._storage_data)
+        if self._storage_metadata:
+            payload["_meta"] = self._storage_metadata
+        return payload
+
+    async def async_load_storage(self):
+        data = await self._store.async_load()
+        if not isinstance(data, dict):
+            self._storage_data = {}
+            self._storage_metadata = {}
+            return
+
+        self._storage_metadata = data.get("_meta", {}) if isinstance(data.get("_meta", {}), dict) else {}
+        self._storage_data = {key: value for key, value in data.items() if key != "_meta"}
+
+    def get_cached_thermostats(self):
+        thermostats = self._storage_metadata.get("thermostats", [])
+        ids = self._storage_metadata.get("ids", {})
+        if isinstance(thermostats, list) and thermostats and all(ids.get(thermostat) for thermostat in thermostats):
+            return thermostats
+        return []
+
+    def is_available(self):
+        return self._last_successful_update is not None and dt_util.now() - self._last_successful_update <= UNAVAILABLE_THRESHOLD
+
+    async def _async_persist_discovery_metadata(self):
+        thermostats = self.get_active_thermostats()
+        if not thermostats:
+            return
+
+        new_metadata = {
+            "thermostats": thermostats,
+            "ids": {
+                thermostat: thermostat_id
+                for thermostat in thermostats
+                if (thermostat_id := self._get_thermostat_id_from_data(thermostat))
+            },
+            "rooms": {
+                thermostat: room_name
+                for thermostat in thermostats
+                if (room_name := self._get_room_name_from_data(thermostat))
+            },
+            "humidity": [thermostat for thermostat in thermostats if thermostat + '_rh' in self._data and int(self._data[thermostat + '_rh']) != 0],
+            "floor": [thermostat for thermostat in thermostats if thermostat + '_external_temperature' in self._data and int(self._data[thermostat + '_external_temperature']) != 32767],
+        }
+
+        if new_metadata != self._storage_metadata:
+            self._storage_metadata = new_metadata
+            await self._store.async_save(self._compose_storage_payload())
 
     # Thermostats config
 
@@ -142,26 +212,30 @@ class UponorStateProxy:
         return active
 
     def get_room_name(self, thermostat):
-        var = 'cust_' + thermostat + '_name'
-        if var in self._data:
-            return self._data[var]
+        room_name = self._get_room_name_from_data(thermostat)
+        if room_name is not None:
+            return room_name
+
+        cached_rooms = self._storage_metadata.get("rooms", {})
+        if thermostat in cached_rooms:
+            return cached_rooms[thermostat]
+
+        configured_name = self._config_entry.data.get(thermostat.lower())
+        if configured_name:
+            return configured_name
+
         return thermostat
 
     def get_thermostat_id(self, thermostat):
-        var = thermostat.replace('T', 'thermostat') + '_id'
-        if var in self._data:
-            return self._data[var]
+        thermostat_id = self._get_thermostat_id_from_data(thermostat)
+        if thermostat_id is not None:
+            return thermostat_id
 
-    def get_model(self):
-        var = 'cust_SW_version_update'
-        if var in self._data:
-            return self._data[var].split('_')[0]
-        return '-'
+        cached_ids = self._storage_metadata.get("ids", {})
+        if thermostat in cached_ids:
+            return cached_ids[thermostat]
 
-    def get_version(self, thermostat):
-        var = thermostat[0:3] + 'sw_version'
-        if var in self._data:
-            return self._data[var].split('_')[0]
+        return thermostat
 
     # Temperatures & humidity
 
@@ -182,8 +256,10 @@ class UponorStateProxy:
 
     def has_humidity_sensor(self, thermostat):
         var = thermostat + '_rh'
-        return var in self._data and int(self._data[var]) != 0
-    
+        if var in self._data:
+            return int(self._data[var]) != 0
+        return thermostat in self._storage_metadata.get("humidity", [])
+
     def get_humidity(self, thermostat):
         var = thermostat + '_rh'
         if var in self._data and int(self._data[var]) >= TOO_LOW_HUMIDITY_LIMIT:
@@ -191,7 +267,9 @@ class UponorStateProxy:
         
     def has_floor_temperature(self, thermostat):
         var = thermostat + '_external_temperature'
-        return var in self._data and int(self._data[var]) != 32767
+        if var in self._data:
+            return int(self._data[var]) != 32767
+        return thermostat in self._storage_metadata.get("floor", [])
 
     def get_floor_temperature(self, thermostat):
         var = thermostat + '_external_temperature'
@@ -296,16 +374,14 @@ class UponorStateProxy:
         self._hass.async_create_task(self.call_state_update())
 
     async def async_turn_on(self, thermostat):
-        data = await self._store.async_load()
-        self._storage_data = {} if data is None else data
+        await self.async_load_storage()
         last_temp = self._storage_data[thermostat] if thermostat in self._storage_data else DEFAULT_TEMP
         await self.async_set_setpoint(thermostat, last_temp)
 
     async def async_turn_off(self, thermostat):
-        data = await self._store.async_load()
-        self._storage_data = {} if data is None else data
+        await self.async_load_storage()
         self._storage_data[thermostat] = self.get_setpoint(thermostat)
-        await self._store.async_save(self._storage_data)
+        await self._store.async_save(self._compose_storage_payload())
         off_temp = self.get_max_limit(thermostat) if self.is_cool_enabled() else self.get_min_limit(thermostat)
         await self.async_set_setpoint(thermostat, off_temp)
 
@@ -373,6 +449,7 @@ class UponorStateProxy:
                 self._data = await self._client.get_data()
                 self._last_successful_update = dt_util.now()
                 self._unavailable_since = None
+                await self._async_persist_discovery_metadata()
                 self._hass.async_create_task(self.call_state_update())
                 return
             except Exception as ex:

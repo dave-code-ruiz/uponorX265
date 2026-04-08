@@ -1,6 +1,7 @@
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import voluptuous as vol
 import logging
 
@@ -51,8 +52,9 @@ class DomainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
 
             try:
-                client = UponorJnap(user_input[CONF_HOST])
-                self._api_response = await self.hass.async_add_executor_job(client.get_data)
+                session = async_get_clientsession(self.hass)
+                client = UponorJnap(user_input[CONF_HOST], session)
+                self._api_response = await client.get_data()
             except Exception as e:
                 return self.async_show_form(
                     step_id="user",

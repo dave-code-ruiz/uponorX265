@@ -45,6 +45,10 @@ class AwaySwitch(SwitchEntity):
         return False
 
     @property
+    def available(self):
+        return self._state_proxy.is_available()
+
+    @property
     def is_on(self):
         return self._state_proxy.is_away()
 
@@ -98,6 +102,10 @@ class CoolSwitch(SwitchEntity):
     @property
     def should_poll(self):
         return False
+
+    @property
+    def available(self):
+        return self._state_proxy.is_available()
 
     @property
     def is_on(self):
