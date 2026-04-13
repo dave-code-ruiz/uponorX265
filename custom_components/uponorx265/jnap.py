@@ -3,6 +3,7 @@
 import asyncio
 import json
 import aiohttp
+from homeassistant.exceptions import HomeAssistantError
 
 REQUEST_RETRIES = 2
 RETRY_DELAY_SECONDS = 1
@@ -62,4 +63,4 @@ class UponorJnap:
                 if attempt < REQUEST_RETRIES:
                     await asyncio.sleep(RETRY_DELAY_SECONDS)
                     continue
-                raise Exception(f"POST {self.url} failed: {last_error}") from error
+                raise HomeAssistantError(f"POST {self.url} failed: {last_error}") from error
