@@ -2,7 +2,7 @@
 
 This branch contains stability-focused changes compared to `main`.
 
-## What changed
+## Net changes vs main
 
 - Migrated Uponor HTTP calls to async `aiohttp`
 - Added explicit timeouts and bounded retries
@@ -11,14 +11,13 @@ This branch contains stability-focused changes compared to `main`.
 - Added cached thermostat discovery metadata for startup resilience
 - Added entity availability handling for cleaner outage/recovery behavior
 - Updated config flow to use async client path
-- Restored missing `get_model` / `get_version` methods in state proxy
 
 ## Why
 
 To reduce Home Assistant resource spikes when the controller is unavailable,
 improve startup behavior with many thermostats, and make entities recover more reliably after temporary network/controller failures.
 
-## Code quality fixes (all inherited from `main`)
+## Additional net fixes vs main
 
 ### Bugs fixed
 - **`async_set_preset_mode` inverted logic** (`__init__.py`): AWAY/COMFORT calls to `async_set_away` were swapped — selecting Comfort enabled away mode and vice versa.
