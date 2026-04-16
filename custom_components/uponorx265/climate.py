@@ -65,15 +65,6 @@ class UponorClimate(ClimateEntity):
         return self._state_proxy.is_available()
 
     @property
-    def device_state_attributes(self):
-        return {
-            'id': self._thermostat,
-            'status': self._state_proxy.get_status(self._thermostat),
-            'pulse_width_modulation': self._state_proxy.get_pwm(self._thermostat),
-            'eco_setback': self._state_proxy.get_eco_setback(self._thermostat),
-        }
-
-    @property
     def device_info(self):
         return {
             "identifiers": {(self._unique_instance_id, self._state_proxy.get_thermostat_id(self._thermostat))},
@@ -119,7 +110,7 @@ class UponorClimate(ClimateEntity):
         return [HVACMode.COOL, HVACMode.OFF] if self._state_proxy.is_cool_enabled() else [HVACMode.HEAT, HVACMode.OFF]
     @property
     def preset_modes(self):
-        return [PRESET_ECO, PRESET_COMFORT]
+        return [PRESET_ECO, PRESET_AWAY, PRESET_COMFORT]
     
     @property
     def current_humidity(self):
@@ -198,9 +189,9 @@ class UponorClimate(ClimateEntity):
             await self._state_proxy.async_set_preset_mode(preset_mode)
         else:
             if self._state_proxy.is_away():
-                preset_mode = PRESET_COMFORT
+                await self._state_proxy.async_set_preset_mode(PRESET_COMFORT)
             else:
-                preset_mode = PRESET_AWAY
+                await self._state_proxy.async_set_preset_mode(PRESET_AWAY)
 
     async def async_set_temperature(self, **kwargs):
         temp = kwargs.get(ATTR_TEMPERATURE)

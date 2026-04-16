@@ -3,7 +3,7 @@ import math
 import logging
 
 from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 
 from homeassistant.const import CONF_HOST
@@ -33,27 +33,19 @@ from .const import (
     STATUS_ERROR_TAMPER,
     STATUS_ERROR_TOO_HIGH_TEMP,
     TOO_HIGH_TEMP_LIMIT,
-    TOO_LOW_HUMIDITY_LIMIT,
     DEFAULT_TEMP
 )
-from homeassistant.util.unit_system import UnitOfTemperature
-
 from .jnap import UponorJnap
 from .helper import get_unique_id_from_config_entry
 
-
-_LOGGER = logging.getLogger(__name__)
-
-PLATFORMS = [Platform.CLIMATE, Platform.SWITCH, Platform.SENSOR]
-
-# Import climate platform upfront to avoid blocking import during async execution
-from homeassistant.components import climate
 from homeassistant.components.climate.const import (
     PRESET_AWAY,
     PRESET_COMFORT
 )
 
-TEMP_CELSIUS = UnitOfTemperature.CELSIUS  # Updated constant
+_LOGGER = logging.getLogger(__name__)
+
+PLATFORMS = [Platform.CLIMATE, Platform.SWITCH, Platform.SENSOR]
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     # Sync options to data if they differ
@@ -88,6 +80,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     async def handle_set_variable(call):
         var_name = call.data.get('var_name')
         var_value = call.data.get('var_value')
+        if not var_name:
+            return
         await hass.data[unique_id]['state_proxy'].async_set_variable(var_name, var_value)
 
     hass.services.async_register(DOMAIN, "set_variable", handle_set_variable)
@@ -107,7 +101,7 @@ async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     _LOGGER.debug("Update setup entry: %s, data: %s, options: %s", entry.entry_id, entry.data, entry.options)
     # Unload first to ensure clean state (if loaded), then reload
     # This handles the case where setup may have failed initially
-    if entry.state.name in ("LOADED", "SETUP_RETRY"):
+    if entry.state in (ConfigEntryState.LOADED, ConfigEntryState.SETUP_RETRY):
         await hass.config_entries.async_unload(entry.entry_id)
     await hass.config_entries.async_reload(entry.entry_id)
 
@@ -273,7 +267,7 @@ class UponorStateProxy:
 
     def get_humidity(self, thermostat):
         var = thermostat + '_rh'
-        if var in self._data and int(self._data[var]) >= TOO_LOW_HUMIDITY_LIMIT:
+        if var in self._data:
             return int(self._data[var])
         
     def has_floor_temperature(self, thermostat):
@@ -306,7 +300,10 @@ class UponorStateProxy:
         return None
 
     def get_active_setback(self, thermostat, temp):
-        if temp == self.get_min_limit(thermostat) or temp == self.get_max_limit(thermostat):
+        min_lim = self.get_min_limit(thermostat)
+        max_lim = self.get_max_limit(thermostat)
+        if (min_lim is not None and abs(temp - min_lim) < 0.05) or \
+           (max_lim is not None and abs(temp - max_lim) < 0.05):
             return 0
 
         cool_setback = 0
@@ -398,10 +395,9 @@ class UponorStateProxy:
 
     async def async_set_preset_mode(self, preset_mode):
         if preset_mode == PRESET_AWAY:
-            await self.async_set_away(False)
-
-        elif preset_mode == PRESET_COMFORT:
             await self.async_set_away(True)
+        elif preset_mode == PRESET_COMFORT:
+            await self.async_set_away(False)
 
 
     # Cooling
