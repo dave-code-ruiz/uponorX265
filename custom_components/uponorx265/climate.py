@@ -45,19 +45,24 @@ class UponorClimate(ClimateEntity):
         self._state_proxy = state_proxy
         self._thermostat = thermostat
         self._name = name
-        # Use raw setpoint (with offset) to determine on/off state
+        self._is_on = True
+        self._update_power_state()
+
+    def _update_power_state(self):
         temp_raw = self._state_proxy.get_setpoint_raw(self._thermostat)
         is_cool = self._state_proxy.is_cool_enabled()
-        self._is_on = not ((is_cool and temp_raw >= self.max_temp) or (not is_cool and temp_raw <= self.min_temp))
+        min_temp = self.min_temp
+        max_temp = self.max_temp
+
+        if temp_raw is None or is_cool is None or min_temp is None or max_temp is None:
+            self._is_on = True
+            return
+
+        self._is_on = not ((is_cool and temp_raw >= max_temp) or (not is_cool and temp_raw <= min_temp))
 
     @property
-    def device_state_attributes(self):
-        return {
-            'id': self._thermostat,
-            'status': self._state_proxy.get_status(self._thermostat),
-            'pulse_width_modulation': self._state_proxy.get_pwm(self._thermostat),
-            'eco_setback': self._state_proxy.get_eco_setback(self._thermostat),
-        }
+    def available(self):
+        return self._state_proxy.is_available()
 
     @property
     def device_info(self):
@@ -86,10 +91,7 @@ class UponorClimate(ClimateEntity):
 
     @callback
     def _update_callback(self):
-        # Use raw setpoint (with offset) to determine on/off state
-        temp_raw = self._state_proxy.get_setpoint_raw(self._thermostat)
-        is_cool = self._state_proxy.is_cool_enabled()
-        self._is_on = not ((is_cool and temp_raw >= self.max_temp) or (not is_cool and temp_raw <= self.min_temp))
+        self._update_power_state()
         self.async_schedule_update_ha_state(True)
 
     @property
@@ -108,7 +110,7 @@ class UponorClimate(ClimateEntity):
         return [HVACMode.COOL, HVACMode.OFF] if self._state_proxy.is_cool_enabled() else [HVACMode.HEAT, HVACMode.OFF]
     @property
     def preset_modes(self):
-        return [PRESET_ECO, PRESET_COMFORT]
+        return [PRESET_ECO, PRESET_AWAY, PRESET_COMFORT]
     
     @property
     def current_humidity(self):
@@ -187,9 +189,9 @@ class UponorClimate(ClimateEntity):
             await self._state_proxy.async_set_preset_mode(preset_mode)
         else:
             if self._state_proxy.is_away():
-                preset_mode = PRESET_COMFORT
+                await self._state_proxy.async_set_preset_mode(PRESET_COMFORT)
             else:
-                preset_mode = PRESET_AWAY
+                await self._state_proxy.async_set_preset_mode(PRESET_AWAY)
 
     async def async_set_temperature(self, **kwargs):
         temp = kwargs.get(ATTR_TEMPERATURE)

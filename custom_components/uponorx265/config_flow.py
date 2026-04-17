@@ -1,6 +1,7 @@
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import voluptuous as vol
 import logging
 
@@ -51,8 +52,9 @@ class DomainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
 
             try:
-                client = UponorJnap(user_input[CONF_HOST])
-                self._api_response = await self.hass.async_add_executor_job(client.get_data)
+                session = async_get_clientsession(self.hass)
+                client = UponorJnap(user_input[CONF_HOST], session)
+                self._api_response = await client.get_data()
             except Exception as e:
                 return self.async_show_form(
                     step_id="user",
@@ -70,6 +72,11 @@ class DomainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_rooms(self, user_input=None):
         """Handle 2nd step."""
+        if user_input is None:
+            return self.async_show_form(
+                step_id="rooms",
+                data_schema=self.get_rooms_schema()
+            )
         data = {**self._entry_data, **user_input}
 
         return self.async_create_entry(
@@ -112,11 +119,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self, config_entry):
         """Initialize options flow."""
         super().__init__()
-        self._config_entry = config_entry
-
-    @property
-    def config_entry(self):
-        return self._config_entry
 
     async def async_step_init(self, user_input=None):
         return await self.async_step_user(user_input)

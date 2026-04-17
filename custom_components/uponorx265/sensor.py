@@ -5,7 +5,7 @@ from homeassistant.const import UnitOfTemperature, PERCENTAGE
 from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .const import SIGNAL_UPONOR_STATE_UPDATE
+from .const import SIGNAL_UPONOR_STATE_UPDATE, DEVICE_MANUFACTURER
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,7 +33,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
     async_add_entities(entities, update_before_add=False)
 
 class UponorFloorTemperatureSensor(SensorEntity):
-    _enable_turn_on_off_backwards_compatibility = False
     def __init__(self, unique_instance_id, state_proxy, thermostat):
         self._unique_instance_id = unique_instance_id
         self._state_proxy = state_proxy
@@ -48,7 +47,7 @@ class UponorFloorTemperatureSensor(SensorEntity):
         return {
             "identifiers": {(self._unique_instance_id, self._state_proxy.get_thermostat_id(self._thermostat))},
             "name": self._state_proxy.get_room_name(self._thermostat),
-            "manufacturer": "Uponor",
+            "manufacturer": DEVICE_MANUFACTURER,
             "model": self._state_proxy.get_model(),
             "sw_version": self._state_proxy.get_version(self._thermostat)
         }
@@ -56,7 +55,11 @@ class UponorFloorTemperatureSensor(SensorEntity):
     @property
     def should_poll(self):
         return False
-    
+
+    @property
+    def available(self):
+        return self._state_proxy.is_available() and self._state_proxy.has_floor_temperature(self._thermostat)
+
     @property
     def native_value(self):
         return self._state_proxy.get_floor_temperature(self._thermostat)
@@ -91,10 +94,14 @@ class UponorRoomCurrentTemperatureSensor(SensorEntity):
         return {
             "identifiers": {(self._unique_instance_id, self._state_proxy.get_thermostat_id(self._thermostat))},
             "name": self._state_proxy.get_room_name(self._thermostat),
-            "manufacturer": "Uponor",
+            "manufacturer": DEVICE_MANUFACTURER,
             "model": self._state_proxy.get_model(),
             "sw_version": self._state_proxy.get_version(self._thermostat)
         }
+
+    @property
+    def available(self):
+        return self._state_proxy.is_available()
 
     @property
     def native_value(self):
@@ -132,7 +139,7 @@ class UponorHumiditySensor(SensorEntity):
         return {
             "identifiers": {(self._unique_instance_id, self._state_proxy.get_thermostat_id(self._thermostat))},
             "name": self._state_proxy.get_room_name(self._thermostat),
-            "manufacturer": "Uponor",
+            "manufacturer": DEVICE_MANUFACTURER,
             "model": self._state_proxy.get_model(),
             "sw_version": self._state_proxy.get_version(self._thermostat)
         }
@@ -140,7 +147,7 @@ class UponorHumiditySensor(SensorEntity):
     @property
     def available(self):
         """Return True if the sensor is available."""
-        return self._state_proxy.has_humidity_sensor(self._thermostat)
+        return self._state_proxy.is_available() and self._state_proxy.has_humidity_sensor(self._thermostat)
 
     @property
     def native_value(self):

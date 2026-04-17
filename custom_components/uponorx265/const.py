@@ -7,6 +7,7 @@ DOMAIN = "uponorx265"
 SIGNAL_UPONOR_STATE_UPDATE = "uponor_state_update"
 SCAN_INTERVAL = timedelta(seconds=30)
 UNAVAILABLE_THRESHOLD = timedelta(minutes=2)
+RELOAD_COOLDOWN = timedelta(minutes=10)
 
 STORAGE_KEY = "uponorx265_data"
 STORAGE_VERSION = 1
@@ -24,6 +25,4 @@ STATUS_ERROR_RF_SENSOR = 'RF sensor error'
 STATUS_ERROR_TAMPER = 'Tamper error'
 STATUS_ERROR_TOO_HIGH_TEMP = 'API error'
 TOO_HIGH_TEMP_LIMIT = 4508
-TOO_LOW_HUMIDITY_LIMIT = 0
 DEFAULT_TEMP = 20
-TEMP_CELSIUS = '°C'

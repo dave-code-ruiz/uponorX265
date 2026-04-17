@@ -1,44 +1,66 @@
 # JNAP with network error retries
 
+import asyncio
 import json
-import requests
-from requests.adapters import HTTPAdapter, Retry
+import aiohttp
+from homeassistant.exceptions import HomeAssistantError
 
-REQUEST_RETRIES = 10 # retry attempts
-BACKOFF_FACTOR = 3 # exponential backoff
+REQUEST_RETRIES = 2
+RETRY_DELAY_SECONDS = 1
+REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=7, connect=2, sock_connect=2, sock_read=5)
 
 class UponorJnap:
-    def __init__(self, host):
+    def __init__(self, host, session: aiohttp.ClientSession):
         self.url = "http://" + host + "/JNAP/"
-        self.session = requests.Session()
-        self.session.mount('http://', HTTPAdapter(max_retries=Retry(
-            total=REQUEST_RETRIES,
-            connect=REQUEST_RETRIES,
-            read=REQUEST_RETRIES,
-            backoff_factor=BACKOFF_FACTOR,
-        )))
+        self.session = session
 
-    def get_data(self):
-        res = self.post(headers={"x-jnap-action": "http://phyn.com/jnap/uponorsky/GetAttributes"}, payload={})
-        return dict(map(lambda v: (v["waspVarName"], v["waspVarValue"]), res["output"]["vars"]))
+    async def get_data(self):
+        res = await self.post(headers={"x-jnap-action": "http://phyn.com/jnap/uponorsky/GetAttributes"}, payload={})
+        output = res.get("output")
+        if not isinstance(output, dict):
+            raise ValueError(f"Unexpected JNAP response: missing 'output'. keys={list(res.keys())}")
 
-    def send_data(self, data):
-        payload = {
-            "vars": list(map(lambda k: {
-                "waspVarName": k,
-                "waspVarValue": str(data[k]),
-            }, data.keys()))
+        vars_list = output.get("vars")
+        if not isinstance(vars_list, list):
+            raise ValueError("Unexpected JNAP response: 'output.vars' missing or invalid")
+
+        return {
+            item["waspVarName"]: item["waspVarValue"]
+            for item in vars_list
+            if isinstance(item, dict) and "waspVarName" in item and "waspVarValue" in item
         }
-        r_json = self.post(headers={"x-jnap-action": "http://phyn.com/jnap/uponorsky/SetAttributes"}, payload=payload)
-        if 'result' in r_json and not r_json['result'] == 'OK':
+
+    async def send_data(self, data):
+        payload = {
+            "vars": [
+                {
+                    "waspVarName": key,
+                    "waspVarValue": str(data[key]),
+                }
+                for key in data.keys()
+            ]
+        }
+
+        r_json = await self.post(headers={"x-jnap-action": "http://phyn.com/jnap/uponorsky/SetAttributes"}, payload=payload)
+        if r_json.get("result") != "OK":
             raise ValueError(r_json)
 
-    def post(self, headers, payload):
-      requests.packages.urllib3.disable_warnings()
-      try:
-          res = self.session.post(self.url, headers=headers, json=payload, verify=False)
-          if res.status_code != 200:
-              raise Exception("Status code: {}".format(res.status_code))
-          return res.json()
-      except Exception as e:
-          raise Exception("POST {} failed: {}".format(self.url, e))
+    async def post(self, headers, payload):
+        last_error = None
+        for attempt in range(REQUEST_RETRIES + 1):
+            try:
+                async with self.session.post(
+                    self.url,
+                    headers=headers,
+                    json=payload,
+                    ssl=False,
+                    timeout=REQUEST_TIMEOUT,
+                ) as response:
+                    response.raise_for_status()
+                    return await response.json()
+            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as error:
+                last_error = error
+                if attempt < REQUEST_RETRIES:
+                    await asyncio.sleep(RETRY_DELAY_SECONDS)
+                    continue
+                raise HomeAssistantError(f"POST {self.url} failed: {last_error}") from error
