@@ -90,7 +90,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
 
     # Track time interval for updates (use async function)
-    async_track_time_interval(hass, state_proxy.async_update, SCAN_INTERVAL)
+    cancel_interval = async_track_time_interval(hass, state_proxy.async_update, SCAN_INTERVAL)
+    config_entry.async_on_unload(cancel_interval)
 
     config_entry.async_on_unload(config_entry.add_update_listener(async_update_options))
 

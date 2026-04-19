@@ -2,7 +2,7 @@
 
 This branch contains stability-focused changes compared to `main`.
 
-## Net changes vs main
+## Changes vs main
 
 - Migrated Uponor HTTP calls to async `aiohttp`
 - Added explicit timeouts and bounded retries
@@ -17,9 +17,10 @@ This branch contains stability-focused changes compared to `main`.
 To reduce Home Assistant resource spikes when the controller is unavailable,
 improve startup behavior with many thermostats, and make entities recover more reliably after temporary network/controller failures.
 
-## Additional net fixes vs main
+## Additional fixes vs `main`
 
 ### Bugs fixed
+- **`async_track_time_interval` cancel leak** (`__init__.py`): The cancel callable returned by `async_track_time_interval` was never stored or registered with `async_on_unload`. On each integration reload the old polling timer kept running alongside the new one, causing duplicate (and accumulating) error logging during controller outages. Present since upstream tag `1.0.1`. Fixed by capturing the cancel callable and passing it to `config_entry.async_on_unload`.
 - **`async_set_preset_mode` inverted logic** (`__init__.py`): AWAY/COMFORT calls to `async_set_away` were swapped — selecting Comfort enabled away mode and vice versa.
 - **ECO preset branch was dead code** (`climate.py`): The `async_set_preset_mode` ECO branch reassigned a local variable but never acted on it. Now correctly calls `async_set_preset_mode` with the computed target preset.
 - **`preset_mode` could return `PRESET_AWAY` not in `preset_modes`** (`climate.py`): Added `PRESET_AWAY` to the `preset_modes` list to match what `preset_mode` can return.
