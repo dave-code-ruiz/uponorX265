@@ -186,6 +186,7 @@ class UponorStateProxy:
             },
             "humidity": [thermostat for thermostat in thermostats if thermostat + '_rh' in self._data and int(self._data[thermostat + '_rh']) != 0],
             "floor": [thermostat for thermostat in thermostats if thermostat + '_external_temperature' in self._data and int(self._data[thermostat + '_external_temperature']) != 32767],
+            "cooling_available": self._data.get('sys_cooling_available') == "1",
         }
 
         if new_metadata != self._storage_metadata:
@@ -407,6 +408,8 @@ class UponorStateProxy:
         var = 'sys_cooling_available'
         if var in self._data:
             return self._data[var] == "1"
+        # Fallback to cached value when _data is not yet populated (startup with cached thermostats)
+        return self._storage_metadata.get("cooling_available", False)
 
     def is_cool_enabled(self):
         var = 'sys_heat_cool_mode'
