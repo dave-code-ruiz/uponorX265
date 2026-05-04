@@ -96,7 +96,7 @@ class UponorClimate(ClimateEntity):
 
     @property
     def unique_id(self):
-        return self._state_proxy.get_thermostat_id(self._thermostat)
+        return f"{self._unique_instance_id}_{self._state_proxy.get_thermostat_id(self._thermostat)}"
 
     @property
     def temperature_unit(self):

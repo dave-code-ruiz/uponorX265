@@ -38,7 +38,7 @@ class UponorFloorTemperatureSensor(SensorEntity):
         self._state_proxy = state_proxy
         self._thermostat = thermostat
         self._attr_name = f"{state_proxy.get_room_name(thermostat)} Floor Temperature"
-        self._attr_unique_id = f"{state_proxy.get_thermostat_id(thermostat)}_floor_temp"
+        self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_floor_temp"
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_state_class = SensorStateClass.MEASUREMENT
 
@@ -83,7 +83,7 @@ class UponorRoomCurrentTemperatureSensor(SensorEntity):
         self._state_proxy = state_proxy
         self._thermostat = thermostat
         self._attr_name = f"{state_proxy.get_room_name(thermostat)} Current Temperature"
-        self._attr_unique_id = f"{state_proxy.get_thermostat_id(thermostat)}_current_temp"
+        self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_current_temp"
         self._attr_device_class = SensorDeviceClass.TEMPERATURE
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_state_class = SensorStateClass.MEASUREMENT
@@ -129,7 +129,7 @@ class UponorHumiditySensor(SensorEntity):
         self._state_proxy = state_proxy
         self._thermostat = thermostat
         self._attr_name = f"{state_proxy.get_room_name(thermostat)} humidity"
-        self._attr_unique_id = f"{state_proxy.get_thermostat_id(thermostat)}_rh"
+        self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_rh"
         self._attr_device_class = SensorDeviceClass.HUMIDITY
         self._attr_native_unit_of_measurement = PERCENTAGE
         self._attr_state_class = SensorStateClass.MEASUREMENT 

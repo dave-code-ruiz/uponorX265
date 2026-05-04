@@ -172,20 +172,40 @@ class UponorStateProxy:
         if not thermostats:
             return
 
+        # Merge with previously cached thermostats so that a transient JNAP
+        # response missing one thermostat does not permanently remove it from
+        # cache and cause its entity to be missing after the next HA restart.
+        cached_thermostats = self._storage_metadata.get("thermostats", [])
+        merged_thermostats = list(dict.fromkeys(
+            thermostats + [t for t in cached_thermostats if t not in thermostats]
+        ))
+
         new_metadata = {
-            "thermostats": thermostats,
+            "thermostats": merged_thermostats,
             "ids": {
-                thermostat: thermostat_id
-                for thermostat in thermostats
-                if (thermostat_id := self._get_thermostat_id_from_data(thermostat))
+                **self._storage_metadata.get("ids", {}),
+                **{
+                    thermostat: thermostat_id
+                    for thermostat in thermostats
+                    if (thermostat_id := self._get_thermostat_id_from_data(thermostat))
+                },
             },
             "rooms": {
-                thermostat: room_name
-                for thermostat in thermostats
-                if (room_name := self._get_room_name_from_data(thermostat))
+                **self._storage_metadata.get("rooms", {}),
+                **{
+                    thermostat: room_name
+                    for thermostat in thermostats
+                    if (room_name := self._get_room_name_from_data(thermostat))
+                },
             },
-            "humidity": [thermostat for thermostat in thermostats if thermostat + '_rh' in self._data and int(self._data[thermostat + '_rh']) != 0],
-            "floor": [thermostat for thermostat in thermostats if thermostat + '_external_temperature' in self._data and int(self._data[thermostat + '_external_temperature']) != 32767],
+            "humidity": list(dict.fromkeys(
+                [thermostat for thermostat in thermostats if thermostat + '_rh' in self._data and int(self._data[thermostat + '_rh']) != 0]
+                + self._storage_metadata.get("humidity", [])
+            )),
+            "floor": list(dict.fromkeys(
+                [thermostat for thermostat in thermostats if thermostat + '_external_temperature' in self._data and int(self._data[thermostat + '_external_temperature']) != 32767]
+                + self._storage_metadata.get("floor", [])
+            )),
             "cooling_available": self._data.get('sys_cooling_available') == "1",
         }
 
