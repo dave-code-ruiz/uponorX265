@@ -1,6 +1,8 @@
 import asyncio
+import json
 import math
 import logging
+import os
 
 import voluptuous as vol
 
@@ -187,6 +189,11 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
             DOMAIN, "set_variable", _create_set_variable_handler(hass), schema=SET_VARIABLE_SCHEMA
         )
 
+    if not hass.services.has_service(DOMAIN, "dump_hardware_info"):
+        hass.services.async_register(
+            DOMAIN, "dump_hardware_info", _create_dump_hardware_handler(hass)
+        )
+
     # Migrate entity unique_ids from pre-1.1.2 bare format to prefixed format.
     # Must run before platform setup so HA matches existing registry entries
     # to the new unique_ids instead of creating duplicate entities.
@@ -245,6 +252,76 @@ def _create_set_variable_handler(hass: HomeAssistant):
             await proxy.async_set_variable(var_name, var_value)
 
     return handle_set_variable
+
+
+def _create_dump_hardware_handler(hass: HomeAssistant):
+    """Build the uponorx265.dump_hardware_info service handler.
+
+    Writes a JSON file to <config>/uponorx265_hardware_<gateway_id>.json for each
+    configured gateway, containing raw hardware IDs and capability flags for every
+    thermostat and controller. Useful for identifying unknown device models.
+    """
+    async def handle_dump_hardware_info(call) -> None:
+        all_proxies = _get_all_state_proxies(hass)
+        if not all_proxies:
+            _LOGGER.warning("dump_hardware_info: no gateways loaded")
+            return
+
+        for unique_id, proxy in all_proxies.items():
+            output = {
+                "gateway_id": proxy.get_gateway_id(),
+                "gateway_model": proxy.get_model(),
+                "controllers": [],
+                "thermostats": [],
+            }
+
+            for entry in hass.config_entries.async_entries(DOMAIN):
+                if entry.unique_id != unique_id:
+                    continue
+                thermostats = hass.data.get(unique_id, {}).get("thermostats", [])
+
+                seen_controllers = set()
+                for thermostat in thermostats:
+                    controller = thermostat.split('_')[0]
+                    if controller not in seen_controllers:
+                        seen_controllers.add(controller)
+                        ctrl_var = controller + '_hardware_type'
+                        ctrl_hwid = proxy._data.get(ctrl_var)
+                        ctrl_id = proxy.get_controller_id(controller)
+                        output["controllers"].append({
+                            "controller": controller,
+                            "name": proxy.get_controller_name(controller),
+                            "controller_id": ctrl_id,
+                            "sn_start": ctrl_id[:4] if ctrl_id else None,
+                            "hardware_type_raw": ctrl_hwid,
+                            "detected_model": proxy.get_controller_hardware(controller),
+                            "sw_version": proxy.get_controller_version(controller),
+                        })
+
+                    t_var = thermostat + '_thermostat_type'
+                    t_hwid = proxy._data.get(t_var)
+                    t_id = proxy.get_thermostat_id(thermostat)
+                    output["thermostats"].append({
+                        "thermostat": thermostat,
+                        "name": proxy.get_room_name(thermostat),
+                        "thermostat_id": t_id,
+                        "sn_start": t_id[:4] if t_id else None,
+                        "hardware_type_raw": t_hwid,
+                        "detected_model": proxy.get_thermostat_model(thermostat),
+                        "has_humidity_control": proxy.has_humidity_control(thermostat),
+                        "has_humidity_sensor": proxy.has_humidity_sensor(thermostat),
+                        "has_floor_temperature": proxy.has_floor_temperature(thermostat),
+                        "is_public_device": proxy.is_public_device(thermostat),
+                        "is_sensor_only": proxy.is_sensor_only(thermostat),
+                    })
+
+            filename = f"uponorx265_hardware_{proxy.get_gateway_id()}.json"
+            filepath = hass.config.path(filename)
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(output, f, indent=2, default=str)
+            _LOGGER.info("dump_hardware_info: wrote %s", filepath)
+
+    return handle_dump_hardware_info
 
 
 class UponorStateProxy:

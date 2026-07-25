@@ -107,15 +107,53 @@ The language used is the **HA system language** (Settings → System → General
 not the individual user's profile language. Swedish (`sv`) and English (`en`) are supported;
 English is the fallback for all other languages.
 
-## Service
+## Services
 
-`uponorx265.set_variable` — sends a raw variable update to the Uponor API. Use with caution.
+### `uponorx265.set_variable`
+
+Sends a raw variable update to the Uponor API. Use with caution.
 
 | Field | Required | Description |
 |---|---|---|
 | `var_name` | Yes | Variable name, e.g. `sys_heat_cool_mode` |
 | `var_value` | Yes | Value to set |
 | `device_id` | No | Target gateway device. Required if more than one gateway is configured. |
+
+### `uponorx265.dump_hardware_info`
+
+Writes a JSON file to the HA config directory (`/config/uponorx265_hardware_<gateway_id>.json`)
+containing raw hardware IDs and capability flags for every thermostat and controller.
+Useful for identifying unrecognised device models and reporting them as issues.
+
+Example output:
+```json
+{
+  "gateway_id": "aabbccddeeff",
+  "controllers": [
+    {
+      "controller": "C1",
+      "name": "Floor 1",
+      "controller_id": "4195...",
+      "hardware_type_raw": "11",
+      "detected_model": "X-245"
+    }
+  ],
+  "thermostats": [
+    {
+      "thermostat": "C1_T1",
+      "name": "Living room",
+      "thermostat_id": "2691...",
+      "hardware_type_raw": "7",
+      "detected_model": "T-144",
+      "has_humidity_control": false,
+      "has_humidity_sensor": false,
+      "has_floor_temperature": true,
+      "is_public_device": false,
+      "is_sensor_only": false
+    }
+  ]
+}
+```
 
 ## Limitations
 
@@ -137,4 +175,4 @@ For the older Uponor X-165 module, see: https://github.com/dave-code-ruiz/uhomeu
 
 ## Feedback
 
-Issues and pull requests are welcome at https://github.com/fjonson95/uponorX265
+Your feedback, pull requests or any other contribution are welcome.

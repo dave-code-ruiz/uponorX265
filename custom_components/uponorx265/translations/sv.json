@@ -218,6 +218,10 @@
     }
   },
   "services": {
+    "dump_hardware_info": {
+      "name": "Dumpa hårdvaruinfo",
+      "description": "Skriver en JSON-fil till HA:s config-mapp med råa hårdvaru-ID:n och kapabilitetsflaggor för alla termostater och styrenheter. Användbar för att identifiera okända enhetsmodeller. Fil: uponorx265_hardware_<gateway_id>.json"
+    },
     "set_variable": {
       "name": "Sätt variabel",
       "description": "Skicka en variabeluppdatering till Uponor API",
