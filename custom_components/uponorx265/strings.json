@@ -127,32 +127,6 @@
               "ha_controlled": "HA controlled"
             }
           }
-        },
-        "extra_state_attributes": {
-          "id": {
-            "name": "ID"
-          },
-          "status": {
-            "name": "Status",
-            "state": {
-              "ok": "OK",
-              "battery_error": "Battery error",
-              "valve_error": "Valve position error",
-              "air_sensor_error": "Air sensor error",
-              "ext_sensor_error": "External sensor error",
-              "rh_sensor_error": "Humidity sensor error",
-              "rf_sensor_error": "RF sensor error",
-              "tamper_error": "Tamper error",
-              "api_error": "API error",
-              "general_error": "General system error"
-            }
-          },
-          "pulse_width_modulation": {
-            "name": "Pulse width modulation"
-          },
-          "eco_setback": {
-            "name": "ECO setback"
-          }
         }
       }
     },

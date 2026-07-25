@@ -127,32 +127,6 @@
               "ha_controlled": "HA-styrd"
             }
           }
-        },
-        "extra_state_attributes": {
-          "id": {
-            "name": "ID"
-          },
-          "status": {
-            "name": "Status",
-            "state": {
-              "ok": "OK",
-              "battery_error": "Batterifel",
-              "valve_error": "Ventilpositionsfel",
-              "air_sensor_error": "Luftsensorfel",
-              "ext_sensor_error": "Extern sensorfel",
-              "rh_sensor_error": "Fuktighetssensorfel",
-              "rf_sensor_error": "RF-sensorfel",
-              "tamper_error": "Manipuleringsfel",
-              "api_error": "API-fel",
-              "general_error": "Allmänt systemfel"
-            }
-          },
-          "pulse_width_modulation": {
-            "name": "Pulsbreddsmodulering"
-          },
-          "eco_setback": {
-            "name": "ECO-sänkning"
-          }
         }
       }
     },
