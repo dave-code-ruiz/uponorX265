@@ -59,8 +59,6 @@ class UponorThermostatEntity(Entity):
         self._controller = thermostat.split('_')[0]
         self._controller_name = state_proxy.get_controller_name(self._controller)
         self._room_name = state_proxy.get_room_name(self._thermostat)
-        self._unique_instance_id = f"{unique_instance_id}"
-        self._name = f"{self._controller_name} {self._room_name}"
 
     @property
     def device_info(self):
@@ -90,7 +88,7 @@ class UponorThermostatEntity(Entity):
     @callback
     def _update_callback(self):
         """Update sensor state. when data updates"""
-        _LOGGER.debug(f"Updating state for {self._attr_name} with ID {self._attr_unique_id}")
+        _LOGGER.debug(f"Updating state for {self._attr_unique_id}")
         self.async_schedule_update_ha_state(True)
 
 class UponorControllerEntity(Entity):
@@ -103,8 +101,6 @@ class UponorControllerEntity(Entity):
         self._state_proxy = state_proxy
         self._controller = controller
         self._controller_name = state_proxy.get_controller_name(controller)
-        self._unique_instance_id = f"{unique_instance_id}"
-        self._name = f"{self._controller_name}"
 
     @property
     def device_info(self):
@@ -142,7 +138,6 @@ class UponorGatewayEntity(Entity):
 
     def __init__(self, unique_instance_id, state_proxy):
         self._unique_instance_id = unique_instance_id
-#        f"{unique_instance_id}_{self._gateway_id}"
         self._state_proxy = state_proxy
         self._gateway_id = self._state_proxy.get_gateway_id()
 

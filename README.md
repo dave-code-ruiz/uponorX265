@@ -78,27 +78,34 @@ the setpoint to the minimum (heating mode) or maximum (cooling mode) configured 
 
 | Entity | Description |
 |---|---|
-| `switch.NAME_Away` | Activates away/ECO mode for all thermostats |
-| `switch.NAME_Cooling_Mode` | Switches the entire system between heating and cooling mode (only shown if cooling is available) |
-| `switch.ROOM_HA_controlled` | Per-thermostat toggle for HA temperature control (mirrors the HA controlled preset) |
+| Away | Activates away/ECO mode for all thermostats |
+| Cooling mode | Switches the entire system between heating and cooling mode (only shown if cooling is available) |
+| HA controlled (per room) | Per-thermostat toggle for HA temperature control (mirrors the HA controlled preset) |
 
 ### Sensors
 
 | Entity | Created when |
 |---|---|
-| `sensor.NAME_Gateway_Status` | Always — shows Online/Offline for the R-208 module |
-| `sensor.CONTROLLER_Status` | Controller entities enabled in setup |
-| `sensor.CONTROLLER_Room_avg_temp` | Controller entities enabled in setup |
-| `sensor.ROOM_Status` | Always — shows alarm/error codes for each thermostat |
-| `sensor.ROOM_Current_Temperature` | Temperature sensor enabled in setup (default: on) |
-| `sensor.ROOM_Floor_Temperature` | Thermostat has an external floor probe |
-| `sensor.ROOM_humidity` | Thermostat has a humidity sensor |
+| Gateway status | Always — shows Online/Offline for the R-208 module |
+| Status (controller) | Controller entities enabled in setup |
+| Average room temperature | Controller entities enabled in setup |
+| Status (thermostat) | Always — shows alarm/error codes for each thermostat |
+| Room temperature | Temperature sensor enabled in setup (default: on) |
+| Floor temperature | Thermostat has an external floor probe |
+| Humidity | Thermostat has a humidity sensor |
 
 ### Binary sensors
 
 | Entity | Created when |
 |---|---|
-| `binary_sensor.ROOM_Ventil` | Valve sensor enabled in setup (default: off) — shows whether the actuator is open |
+| Valve | Valve sensor enabled in setup (default: off) — shows whether the actuator is open |
+
+### Translations
+
+Entity names and sensor states are translated using Home Assistant's translation system.
+The language used is the **HA system language** (Settings → System → General → Language),
+not the individual user's profile language. Swedish (`sv`) and English (`en`) are supported;
+English is the fallback for all other languages.
 
 ## Service
 

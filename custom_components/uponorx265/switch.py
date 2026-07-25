@@ -2,7 +2,6 @@ import logging
 
 from homeassistant.components.switch import SwitchEntity
 
-from homeassistant.const import CONF_NAME
 from .const import PRESET_MANUAL
 from .helper import (
     get_unique_id_from_config_entry,
@@ -17,10 +16,10 @@ async def async_setup_entry(hass, entry, async_add_entities):
     unique_id = get_unique_id_from_config_entry(entry)
     state_proxy = hass.data[unique_id]["state_proxy"]
 
-    entities = [AwaySwitch(unique_id, state_proxy, entry.data[CONF_NAME])]
+    entities = [AwaySwitch(unique_id, state_proxy)]
 
     if state_proxy.is_cool_available():
-        entities.append(CoolSwitch(unique_id, state_proxy, entry.data[CONF_NAME]))
+        entities.append(CoolSwitch(unique_id, state_proxy))
 
     for thermostat in hass.data[unique_id]["thermostats"]:
         entities.append(LocalOverride(unique_id, state_proxy, thermostat))
@@ -32,7 +31,7 @@ class AwaySwitch(UponorGatewayEntity, SwitchEntity):
     _attr_translation_key = "away"
     _attr_icon = "mdi:home-export-outline"
 
-    def __init__(self, unique_instance_id, state_proxy, name):
+    def __init__(self, unique_instance_id, state_proxy):
         super().__init__(unique_instance_id, state_proxy)
         self._attr_unique_id = f"{unique_instance_id}_away"
 
@@ -53,7 +52,7 @@ class CoolSwitch(UponorGatewayEntity, SwitchEntity):
     _attr_translation_key = "cool_mode"
     _attr_icon = "mdi:snowflake"
 
-    def __init__(self, unique_instance_id, state_proxy, name):
+    def __init__(self, unique_instance_id, state_proxy):
         super().__init__(unique_instance_id, state_proxy)
         self._attr_unique_id = f"{unique_instance_id}_cool"
 

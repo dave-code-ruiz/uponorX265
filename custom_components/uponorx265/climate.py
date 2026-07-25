@@ -35,8 +35,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     entities = []
     for thermostat in hass.data[unique_id]["thermostats"]:
-        name = entry.data.get(thermostat.lower(), state_proxy.get_room_name(thermostat))
-        entities.append(UponorClimate(unique_id, state_proxy, thermostat, name))
+        entities.append(UponorClimate(unique_id, state_proxy, thermostat))
     
     if entities:
         async_add_entities(entities, update_before_add=False)
@@ -44,7 +43,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 class UponorClimate(UponorThermostatEntity, ClimateEntity):
     _enable_turn_on_off_backwards_compatibility = False
-    _attr_translation_key = "uponor_climate"
+    _attr_name = None  # Main entity — uses device name directly
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_preset_modes = [PRESET_COMFORT, PRESET_ECO, PRESET_AWAY, PRESET_MANUAL]
     _attr_supported_features = (
@@ -54,11 +53,10 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
         | ClimateEntityFeature.TURN_ON
     )
 
-    def __init__(self, unique_instance_id, state_proxy, thermostat, name):
+    def __init__(self, unique_instance_id, state_proxy, thermostat):
         super().__init__(unique_instance_id, state_proxy, thermostat)
         self._is_on = True
         self._update_power_state()
-        self._attr_name = None  # Main entity for the device — uses device name directly
         self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_climate"
 
     def _update_power_state(self):
