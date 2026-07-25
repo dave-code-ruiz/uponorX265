@@ -1,0 +1,238 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Uponorx265",
+        "description": "Set up Uponor heating/cooling system",
+        "data": {
+          "host": "Host or IP address of the Uponor controller",
+          "name": "Name of the integration instance",
+          "unique_id": "Optional unique identifier (must be unique across entries)"
+        }
+      },
+      "controllers": {
+        "title": "Controllers",
+        "description": "Name the controllers and choose whether to create controller entities in HA",
+        "data": {
+          "create_controllers": "Create controller sensors",
+          "c1": "Name of controller 1",
+          "c2": "Name of controller 2",
+          "c3": "Name of controller 3",
+          "c4": "Name of controller 4"
+        }
+      },
+      "features": {
+        "title": "Sensors",
+        "description": "Choose which optional sensors to create per thermostat",
+        "data": {
+          "sensor_temperature": "Create room temperature sensor",
+          "binary_sensor_valve": "Create valve binary sensor"
+        }
+      },
+      "rooms": {
+        "title": "Uponor Thermostats",
+        "description": "Assign names for Uponor thermostats",
+        "data": {
+          "c1_t1": "Name of C1 Thermostat 1",
+          "c1_t2": "Name of C1 Thermostat 2",
+          "c1_t3": "Name of C1 Thermostat 3",
+          "c1_t4": "Name of C1 Thermostat 4",
+          "c1_t5": "Name of C1 Thermostat 5",
+          "c1_t6": "Name of C1 Thermostat 6",
+          "c1_t7": "Name of C1 Thermostat 7",
+          "c1_t8": "Name of C1 Thermostat 8",
+          "c1_t9": "Name of C1 Thermostat 9",
+          "c1_t10": "Name of C1 Thermostat 10",
+          "c1_t11": "Name of C1 Thermostat 11",
+          "c1_t12": "Name of C1 Thermostat 12",
+
+          "c2_t1": "Name of C2 Thermostat 1",
+          "c2_t2": "Name of C2 Thermostat 2",
+          "c2_t3": "Name of C2 Thermostat 3",
+          "c2_t4": "Name of C2 Thermostat 4",
+          "c2_t5": "Name of C2 Thermostat 5",
+          "c2_t6": "Name of C2 Thermostat 6",
+          "c2_t7": "Name of C2 Thermostat 7",
+          "c2_t8": "Name of C2 Thermostat 8",
+          "c2_t9": "Name of C2 Thermostat 9",
+          "c2_t10": "Name of C2 Thermostat 10",
+          "c2_t11": "Name of C2 Thermostat 11",
+          "c2_t12": "Name of C2 Thermostat 12",
+
+          "c3_t1": "Name of C3 Thermostat 1",
+          "c3_t2": "Name of C3 Thermostat 2",
+          "c3_t3": "Name of C3 Thermostat 3",
+          "c3_t4": "Name of C3 Thermostat 4",
+          "c3_t5": "Name of C3 Thermostat 5",
+          "c3_t6": "Name of C3 Thermostat 6",
+          "c3_t7": "Name of C3 Thermostat 7",
+          "c3_t8": "Name of C3 Thermostat 8",
+          "c3_t9": "Name of C3 Thermostat 9",
+          "c3_t10": "Name of C3 Thermostat 10",
+          "c3_t11": "Name of C3 Thermostat 11",
+          "c3_t12": "Name of C3 Thermostat 12",
+
+          "c4_t1": "Name of C4 Thermostat 1",
+          "c4_t2": "Name of C4 Thermostat 2",
+          "c4_t3": "Name of C4 Thermostat 3",
+          "c4_t4": "Name of C4 Thermostat 4",
+          "c4_t5": "Name of C4 Thermostat 5",
+          "c4_t6": "Name of C4 Thermostat 6",
+          "c4_t7": "Name of C4 Thermostat 7",
+          "c4_t8": "Name of C4 Thermostat 8",
+          "c4_t9": "Name of C4 Thermostat 9",
+          "c4_t10": "Name of C4 Thermostat 10",
+          "c4_t11": "Name of C4 Thermostat 11",
+          "c4_t12": "Name of C4 Thermostat 12"
+        }
+      }
+    },
+    "error": {
+      "invalid_host": "Invalid hostname or IP address."
+    },
+    "abort": {}
+  },
+  "options": {
+    "step": {
+      "user": {
+        "title": "Uponorx265",
+        "description": "Configure Uponor system options",
+        "data": {
+          "host": "Host or IP address of the Uponor controller"
+        }
+      },
+      "features": {
+        "title": "Sensors",
+        "description": "Choose which optional sensors to create per thermostat",
+        "data": {
+          "sensor_temperature": "Create room temperature sensor",
+          "binary_sensor_valve": "Create valve binary sensor"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "temperature_not_controllable": {
+      "message": "{room_name}: temperature is controlled by the physical thermostat dial. Switch to the 'HA-styrd' preset to set temperature from Home Assistant."
+    }
+  },
+  "entity": {
+    "climate": {
+      "uponor_climate": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "ha_controlled": "HA controlled"
+            }
+          }
+        },
+        "extra_state_attributes": {
+          "id": {
+            "name": "ID"
+          },
+          "status": {
+            "name": "Status",
+            "state": {
+              "ok": "OK",
+              "battery_error": "Battery error",
+              "valve_error": "Valve position error",
+              "air_sensor_error": "Air sensor error",
+              "ext_sensor_error": "External sensor error",
+              "rh_sensor_error": "Humidity sensor error",
+              "rf_sensor_error": "RF sensor error",
+              "tamper_error": "Tamper error",
+              "api_error": "API error",
+              "general_error": "General system error"
+            }
+          },
+          "pulse_width_modulation": {
+            "name": "Pulse width modulation"
+          },
+          "eco_setback": {
+            "name": "ECO setback"
+          }
+        }
+      }
+    },
+    "sensor": {
+      "gateway_status": {
+        "name": "Gateway status",
+        "state": {
+          "online": "Online",
+          "offline": "Offline",
+          "comfail_main_controller": "Communication failure with main controller"
+        }
+      },
+      "controller_status": {
+        "name": "Status",
+        "state": {
+          "ok": "OK",
+          "comfail_controller": "Communication failure controller",
+          "comfail_out": "Communication failure out module",
+          "general_error": "General system error"
+        }
+      },
+      "thermostat_status": {
+        "name": "Status",
+        "state": {
+          "ok": "OK",
+          "battery_error": "Battery error",
+          "valve_error": "Valve position error",
+          "air_sensor_error": "Air sensor error",
+          "ext_sensor_error": "External sensor error",
+          "rh_sensor_error": "Humidity sensor error",
+          "rf_sensor_error": "RF sensor error",
+          "tamper_error": "Tamper error",
+          "api_error": "API error",
+          "general_error": "General system error"
+        }
+      },
+      "floor_temp": {
+        "name": "Floor temperature"
+      },
+      "room_temp": {
+        "name": "Room temperature"
+      },
+      "humidity": {
+        "name": "Humidity"
+      },
+      "room_avg_temp": {
+        "name": "Average room temperature"
+      }
+    },
+    "switch": {
+      "away": {
+        "name": "Away"
+      },
+      "cool_mode": {
+        "name": "Cooling mode"
+      },
+      "local_override": {
+        "name": "HA controlled"
+      }
+    },
+    "binary_sensor": {
+      "valve": {
+        "name": "Valve"
+      }
+    }
+  },
+  "services": {
+    "set_variable": {
+      "name": "Set Variable",
+      "description": "Send a variable update to the Uponor API",
+      "fields": {
+        "var_name": {
+          "name": "Variable Name",
+          "description": "Name of the variable you want to update",
+          "example": "sys_heat_cool_mode"
+        },
+        "var_value": {
+          "name": "Variable Value",
+          "description": "Value you want to assign to the variable",
+          "example": "0"
+        }
+      }
+    }
+  }
+}
