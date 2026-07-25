@@ -1,70 +1,130 @@
 # homeassistant-uponor
 
-<a href="https://www.buymeacoffee.com/davecoderuiz" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
-
-[![hacs_badge](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/hacs/integration)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 
 Uponor Smatrix Pulse X-265 or X-245 with R-208 heating/cooling integration for Home Assistant.
 
-## First Note
-
-I create this repo beause repo https://github.com/asev/homeassistant-uponor is deprecated and I have no news from the creator @asev
+Forked and extended from [dave-code-ruiz/uponorX265](https://github.com/dave-code-ruiz/uponorX265), which was forked from the original (now unmaintained) [asev/homeassistant-uponor](https://github.com/asev/homeassistant-uponor).
 
 ## Supported devices
 
-This integration communicates with Uponor Smatrix Pulse communication module R-208.
-It should work with all controllers that support this module.
+This integration communicates with the **Uponor Smatrix Pulse R-208** communication module.
+It has been tested with the X-265 and X-245 controllers. Up to 4 controllers with 12 thermostats each are supported.
 
 ## Installation
 
-1. Setup and configure your system on Uponor Smatrix mobile app. Make sure you are able to control temperature via the app.
-Your Uponor has to be connected to the local network and you should know it's IP address.
+1. Configure your system in the Uponor Smatrix mobile app and verify that temperature control works.
+   Make sure the R-208 module is connected to your local network and note its IP address.
 
-2. Install "Uponor Smatrix X-265 module R-208" integration on HACS
+2. Install via HACS as a custom repository, or copy the `custom_components/uponorx265` folder
+   to your Home Assistant `/config/custom_components/` folder.
 
-OR copy the custom_components folder to your own Home Assistant /config folder.
+3. Restart Home Assistant.
 
-3. Restart Home Assistant server
+4. Go to **Settings → Devices & Services → Add Integration → UponorX265** and complete the setup wizard.
 
-4. Go to Configuration > Integration" > Add Integration > UponorX265. Finish the setup.
-   
-## Structure
+## Setup wizard
 
-Separate entity `climate.THERMOSTAT_NAME` will be created for every thermostat.
-Each thermostat will be registered as a separate device. Also one device will be registered for entire system.
+The setup wizard has four steps:
 
-`switch.uponor_away` controls away mode. It activates ECO mode for all thermostat.
+1. **Connection** — enter the IP address and a name for this gateway.
+2. **Controllers** — optionally rename each detected controller. A checkbox lets you choose whether
+   controller devices and sensors should be created in HA.
+3. **Sensors** — choose which optional sensors to create per thermostat:
+   - **Current temperature sensor** (on by default)
+   - **Valve binary sensor** (off by default)
+4. **Rooms** — optionally rename each detected thermostat/room.
 
-`switch.uponor_cooling_mode` activates cooling mode when switched on and heating mode when it's switched off.
-This switch will be added only if cooling is available in your system.
+All settings can be changed later via **Settings → Devices & Services → UponorX265 → Configure**.
 
-`uponor.set_variable` service allows to send POST requests to Uponor API. Use it with caution!
+## Multiple gateways
 
-### Climate entity
+Multiple R-208 gateways can be added as separate integration instances. Each instance is
+fully independent with its own devices, entities, and cached data.
 
-Climate entity has read-only preset. Two presets are available:
-* ECO - activated when scheduled ECO profile is on OR Temporary ECO mode activated on the mobile app.
-* Away - activated when `switch.uponor_away` is on.
+## Entities
 
-If none of those are true, then preset is empty.
+### Climate (`climate.ROOM_NAME`)
+
+One climate entity per thermostat.
+
+| Feature | Description |
+|---|---|
+| Current temperature | Room temperature from the thermostat sensor |
+| Target temperature | Read-only when preset is not **HA controlled** (set by the physical dial) |
+| HVAC mode | Heat / Cool / Off |
+| Presets | See below |
+
+**Presets:**
+
+| Preset | Description |
+|---|---|
+| Comfort | Normal operation — temperature controlled by the physical thermostat dial |
+| ECO | Activated by the thermostat's scheduled ECO profile or Temporary ECO in the mobile app |
+| Away | Activated by the Away switch (forces ECO mode on all thermostats) |
+| HA controlled | Unlocks target temperature control from Home Assistant |
+
+When the preset is anything other than **HA controlled**, the target temperature is read-only.
+Attempting to change it shows a notification explaining that the dial is in control and
+the displayed temperature is immediately refreshed from the controller.
+
+Switching away from **HA controlled** immediately re-polls the controller so HA shows the
+temperature the physical dial is set to.
+
+**Turn off:** since the Uponor API has no true off command, turning off a climate entity sets
+the setpoint to the minimum (heating mode) or maximum (cooling mode) configured limit.
+
+### Switches
+
+| Entity | Description |
+|---|---|
+| Away | Activates away/ECO mode for all thermostats |
+| Cooling mode | Switches the entire system between heating and cooling mode (only shown if cooling is available) |
+| HA controlled (per room) | Per-thermostat toggle for HA temperature control (mirrors the HA controlled preset) |
+
+### Sensors
+
+| Entity | Created when |
+|---|---|
+| Gateway status | Always — shows Online/Offline for the R-208 module |
+| Status (controller) | Controller entities enabled in setup |
+| Average room temperature | Controller entities enabled in setup |
+| Status (thermostat) | Always — shows alarm/error codes for each thermostat |
+| Room temperature | Temperature sensor enabled in setup (default: on) |
+| Floor temperature | Thermostat has an external floor probe |
+| Humidity | Thermostat has a humidity sensor |
+
+### Binary sensors
+
+| Entity | Created when |
+|---|---|
+| Valve | Valve sensor enabled in setup (default: off) — shows whether the actuator is open |
+
+### Translations
+
+Entity names and sensor states are translated using Home Assistant's translation system.
+The language used is the **HA system language** (Settings → System → General → Language),
+not the individual user's profile language. Swedish (`sv`) and English (`en`) are supported;
+English is the fallback for all other languages.
+
+## Service
+
+`uponorx265.set_variable` — sends a raw variable update to the Uponor API. Use with caution.
+
+| Field | Required | Description |
+|---|---|---|
+| `var_name` | Yes | Variable name, e.g. `sys_heat_cool_mode` |
+| `var_value` | Yes | Value to set |
+| `device_id` | No | Target gateway device. Required if more than one gateway is configured. |
 
 ## Limitations
 
-Uponor API doesn't support heat/cool switch for single thermostat.
-`switch.uponor_cooling_mode` change mode for entire system.
+- Heat/cool mode switching applies to the entire system, not individual thermostats.
+- The Uponor API does not expose an off command — see climate entity turn off behaviour above.
 
-Uponor API does not support turn off action. When climate entity is turned off on Home Assistant,
-the temperature is set to the minimum (default 5℃) when heating mode is active
-and to the maximum (default 35℃) when cooling mode is active.
+## Enable debug logging
 
-## Enable debug mode
-
-Use debug log to see more information of posible errors and post it in your issue description
-
-In configuration.yaml:
-
-```
+```yaml
 logger:
   default: info
   logs:
@@ -73,8 +133,8 @@ logger:
 
 ## Older module
 
-In case you have older Uponor X-165 module visit: https://github.com/dave-code-ruiz/uhomeuponor
+For the older Uponor X-165 module, see: https://github.com/dave-code-ruiz/uhomeuponor
 
 ## Feedback
 
-Your feedback, pull requests or any other contribution are welcome.
+Issues and pull requests are welcome at https://github.com/fjonson95/uponorX265

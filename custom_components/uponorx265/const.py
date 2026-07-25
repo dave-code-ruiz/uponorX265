@@ -14,15 +14,25 @@ STORAGE_VERSION = 1
 
 DEVICE_MANUFACTURER = "Uponor"
 
-STATUS_OK = 'OK'
-STATUS_ERROR_BATTERY = 'Battery error'
-STATUS_ERROR_VALVE = 'Valve position error'
-STATUS_ERROR_GENERAL = 'General system error'
-STATUS_ERROR_AIR_SENSOR = 'Air sensor error'
-STATUS_ERROR_EXT_SENSOR = 'External sensor error'
-STATUS_ERROR_RH_SENSOR = 'Humidity sensor error'
-STATUS_ERROR_RF_SENSOR = 'RF sensor error'
-STATUS_ERROR_TAMPER = 'Tamper error'
-STATUS_ERROR_TOO_HIGH_TEMP = 'API error'
+STATUS_OK                       = 'ok'
+STATUS_ERROR_BATTERY            = 'battery_error'
+STATUS_ERROR_VALVE              = 'valve_error'
+STATUS_ERROR_GENERAL            = 'general_error'
+STATUS_ERROR_AIR_SENSOR         = 'air_sensor_error'
+STATUS_ERROR_EXT_SENSOR         = 'ext_sensor_error'
+STATUS_ERROR_RH_SENSOR          = 'rh_sensor_error'
+STATUS_ERROR_RF_SENSOR          = 'rf_sensor_error'
+STATUS_ERROR_TAMPER             = 'tamper_error'
+STATUS_ERROR_TOO_HIGH_TEMP      = 'api_error'
+STATUS_ERROR_COMFAILOUT         = 'comfail_out'
+STATUS_ERROR_CONTROLER          = 'comfail_controller'
+STATUS_ONLINE                   = 'online'
+STATUS_OFFLINE                  = 'offline'
+STATUS_ERROR_MAINCONTROLER_FAIL = 'comfail_main_controller'
+PRESET_MANUAL = 'ha_controlled'
+
+CONF_CREATE_CONTROLLERS = "create_controllers"
+CONF_SENSOR_TEMP = "sensor_temperature"
+CONF_BINARY_SENSOR_VALVE = "binary_sensor_valve"
 TOO_HIGH_TEMP_LIMIT = 4508
 DEFAULT_TEMP = 20

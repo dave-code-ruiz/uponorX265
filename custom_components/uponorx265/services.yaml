@@ -10,3 +10,9 @@ set_variable:
       name: "Variable Value"
       description: "Value of the variable"
       example: 0
+    device_id:
+      name: "Gateway"
+      description: "Gateway to send the variable to. Required if more than one gateway is configured."
+      selector:
+        device:
+          integration: uponorx265
