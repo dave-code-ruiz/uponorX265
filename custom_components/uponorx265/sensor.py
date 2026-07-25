@@ -58,10 +58,10 @@ class UponorThermostatStatusSensor(UponorThermostatEntity, SensorEntity):
     """Diagnostic sensor showing alarm/error status for a single thermostat."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "thermostat_status"
 
     def __init__(self, unique_instance_id, state_proxy, thermostat):
-        super().__init__(unique_instance_id, state_proxy, thermostat) 
-        self._attr_name = f"{self._room_name} Status"
+        super().__init__(unique_instance_id, state_proxy, thermostat)
         self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_status"
 
     @property
@@ -77,10 +77,10 @@ class UponorControllerStatusSensor(UponorControllerEntity,SensorEntity):
     """Diagnostic sensor showing communication status for a controller."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "controller_status"
 
     def __init__(self, unique_instance_id, state_proxy, controller):
-        super().__init__(unique_instance_id, state_proxy, controller) 
-        self._attr_name = f"{self._controller_name} Status"
+        super().__init__(unique_instance_id, state_proxy, controller)
         self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_controller_id(controller)}_status"
 
     @property
@@ -97,10 +97,10 @@ class UponorGatewayStatusSensor(UponorGatewayEntity, SensorEntity):
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_available = True  # Always available so the sensor can show "Offline"
+    _attr_translation_key = "gateway_status"
 
     def __init__(self, unique_instance_id, state_proxy):
         super().__init__(unique_instance_id, state_proxy)
-        self._attr_name = f"{self._state_proxy.get_integration_name()} Gateway Status"
         self._attr_unique_id = f"{self._unique_instance_id}_{self._gateway_id}_gateway_status"
 
     @property
@@ -118,9 +118,10 @@ class UponorGatewayStatusSensor(UponorGatewayEntity, SensorEntity):
 class UponorFloorTemperatureSensor(UponorThermostatEntity, SensorEntity):
     """Sensor showing floor temperature for a single thermostat."""
 
+    _attr_translation_key = "floor_temp"
+
     def __init__(self, unique_instance_id, state_proxy, thermostat):
         super().__init__(unique_instance_id, state_proxy, thermostat)
-        self._attr_name = f"{self._room_name} Floor Temperature"
         self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_floor_temp"
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_state_class = SensorStateClass.MEASUREMENT
@@ -136,9 +137,10 @@ class UponorFloorTemperatureSensor(UponorThermostatEntity, SensorEntity):
 class UponorRoomCurrentTemperatureSensor(UponorThermostatEntity, SensorEntity):
     """Sensor showing current room temperature for a single thermostat."""
 
+    _attr_translation_key = "room_temp"
+
     def __init__(self, unique_instance_id, state_proxy, thermostat):
-        super().__init__(unique_instance_id, state_proxy, thermostat)         
-        self._attr_name = f"{self._room_name} Current Temperature"
+        super().__init__(unique_instance_id, state_proxy, thermostat)
         self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_current_temp"
         self._attr_device_class = SensorDeviceClass.TEMPERATURE
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
@@ -149,9 +151,10 @@ class UponorRoomCurrentTemperatureSensor(UponorThermostatEntity, SensorEntity):
         return self._state_proxy.get_temperature(self._thermostat)
 
 class UponorHumiditySensor(UponorThermostatEntity, SensorEntity):
+    _attr_translation_key = "humidity"
+
     def __init__(self, unique_instance_id, state_proxy, thermostat):
-        super().__init__(unique_instance_id, state_proxy, thermostat) 
-        self._attr_name = f"{self._room_name} humidity"
+        super().__init__(unique_instance_id, state_proxy, thermostat)
         self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_rh"
         self._attr_device_class = SensorDeviceClass.HUMIDITY
         self._attr_native_unit_of_measurement = PERCENTAGE
@@ -167,9 +170,10 @@ class UponorHumiditySensor(UponorThermostatEntity, SensorEntity):
         return self._state_proxy.get_humidity(self._thermostat)
 
 class UponorRoomAvg(UponorControllerEntity, SensorEntity):
+    _attr_translation_key = "room_avg_temp"
+
     def __init__(self, unique_instance_id, state_proxy, controller):
         super().__init__(unique_instance_id, state_proxy, controller)
-        self._attr_name = f"{self._controller_name} Room avg temp"
         self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_controller_id(self._controller)}_average_room_temperature"
         self._attr_device_class = SensorDeviceClass.TEMPERATURE
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS

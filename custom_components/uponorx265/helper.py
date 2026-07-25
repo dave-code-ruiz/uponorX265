@@ -50,6 +50,8 @@ def _get_mac_with_arp_refresh(host: str):
 class UponorThermostatEntity(Entity):
     """Base class for entity connected to termostat."""
 
+    _attr_has_entity_name = True
+
     def __init__(self, unique_instance_id, state_proxy, thermostat):
         self._unique_instance_id = unique_instance_id
         self._state_proxy = state_proxy
@@ -94,6 +96,8 @@ class UponorThermostatEntity(Entity):
 class UponorControllerEntity(Entity):
     """Diagnostic sensor showing communication status for a controller."""
 
+    _attr_has_entity_name = True
+
     def __init__(self, unique_instance_id, state_proxy, controller):
         self._unique_instance_id = unique_instance_id
         self._state_proxy = state_proxy
@@ -133,6 +137,8 @@ class UponorControllerEntity(Entity):
         
 class UponorGatewayEntity(Entity):
     """Base class for entity connected to gatewayen."""
+
+    _attr_has_entity_name = True
 
     def __init__(self, unique_instance_id, state_proxy):
         self._unique_instance_id = unique_instance_id

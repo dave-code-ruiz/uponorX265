@@ -10,6 +10,25 @@
           "unique_id": "Optional unique identifier (must be unique across entries)"
         }
       },
+      "controllers": {
+        "title": "Controllers",
+        "description": "Name the controllers and choose whether to create controller entities in HA",
+        "data": {
+          "create_controllers": "Create controller sensors",
+          "c1": "Name of controller 1",
+          "c2": "Name of controller 2",
+          "c3": "Name of controller 3",
+          "c4": "Name of controller 4"
+        }
+      },
+      "features": {
+        "title": "Sensors",
+        "description": "Choose which optional sensors to create per thermostat",
+        "data": {
+          "sensor_temperature": "Create room temperature sensor",
+          "binary_sensor_valve": "Create valve binary sensor"
+        }
+      },
       "rooms": {
         "title": "Uponor Thermostats",
         "description": "Assign names for Uponor thermostats",
@@ -81,6 +100,120 @@
         "data": {
           "host": "Host or IP address of the Uponor controller"
         }
+      },
+      "features": {
+        "title": "Sensors",
+        "description": "Choose which optional sensors to create per thermostat",
+        "data": {
+          "sensor_temperature": "Create room temperature sensor",
+          "binary_sensor_valve": "Create valve binary sensor"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "temperature_not_controllable": {
+      "message": "{room_name}: temperature is controlled by the physical thermostat dial. Switch to the 'HA-styrd' preset to set temperature from Home Assistant."
+    }
+  },
+  "entity": {
+    "climate": {
+      "uponor_climate": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "ha_controlled": "HA controlled"
+            }
+          }
+        },
+        "extra_state_attributes": {
+          "id": {
+            "name": "ID"
+          },
+          "status": {
+            "name": "Status",
+            "state": {
+              "ok": "OK",
+              "battery_error": "Battery error",
+              "valve_error": "Valve position error",
+              "air_sensor_error": "Air sensor error",
+              "ext_sensor_error": "External sensor error",
+              "rh_sensor_error": "Humidity sensor error",
+              "rf_sensor_error": "RF sensor error",
+              "tamper_error": "Tamper error",
+              "api_error": "API error",
+              "general_error": "General system error"
+            }
+          },
+          "pulse_width_modulation": {
+            "name": "Pulse width modulation"
+          },
+          "eco_setback": {
+            "name": "ECO setback"
+          }
+        }
+      }
+    },
+    "sensor": {
+      "gateway_status": {
+        "name": "Gateway status",
+        "state": {
+          "online": "Online",
+          "offline": "Offline",
+          "comfail_main_controller": "Communication failure with main controller"
+        }
+      },
+      "controller_status": {
+        "name": "Status",
+        "state": {
+          "ok": "OK",
+          "comfail_controller": "Communication failure controller",
+          "comfail_out": "Communication failure out module",
+          "general_error": "General system error"
+        }
+      },
+      "thermostat_status": {
+        "name": "Status",
+        "state": {
+          "ok": "OK",
+          "battery_error": "Battery error",
+          "valve_error": "Valve position error",
+          "air_sensor_error": "Air sensor error",
+          "ext_sensor_error": "External sensor error",
+          "rh_sensor_error": "Humidity sensor error",
+          "rf_sensor_error": "RF sensor error",
+          "tamper_error": "Tamper error",
+          "api_error": "API error",
+          "general_error": "General system error"
+        }
+      },
+      "floor_temp": {
+        "name": "Floor temperature"
+      },
+      "room_temp": {
+        "name": "Room temperature"
+      },
+      "humidity": {
+        "name": "Humidity"
+      },
+      "room_avg_temp": {
+        "name": "Average room temperature"
+      }
+    },
+    "switch": {
+      "away": {
+        "name": "Away"
+      },
+      "cool_mode": {
+        "name": "Cooling mode"
+      },
+      "local_override": {
+        "name": "HA controlled"
+      }
+    },
+    "binary_sensor": {
+      "valve": {
+        "name": "Valve"
       }
     }
   },

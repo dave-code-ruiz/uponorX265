@@ -4,7 +4,7 @@
   "codeowners": [
     "@asev",
     "@dave-code-ruiz",
-    "@SmartuserHA",    
+    "@SmartuserHA",
     "@fjonson95"
   ],
   "config_flow": true,

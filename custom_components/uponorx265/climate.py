@@ -44,6 +44,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 class UponorClimate(UponorThermostatEntity, ClimateEntity):
     _enable_turn_on_off_backwards_compatibility = False
+    _attr_translation_key = "uponor_climate"
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_preset_modes = [PRESET_COMFORT, PRESET_ECO, PRESET_AWAY, PRESET_MANUAL]
     _attr_supported_features = (
@@ -57,7 +58,7 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
         super().__init__(unique_instance_id, state_proxy, thermostat)
         self._is_on = True
         self._update_power_state()
-        self._attr_name = self._room_name
+        self._attr_name = None  # Main entity for the device — uses device name directly
         self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_climate"
 
     def _update_power_state(self):
@@ -174,8 +175,9 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
         if not self._state_proxy.get_local_override(self._thermostat):
             self.hass.async_create_task(self._state_proxy.async_update())
             raise ServiceValidationError(
-                f"{self._room_name}: temperature is controlled by the physical thermostat dial. "
-                "Switch to 'HA controlled' preset to set temperature from Home Assistant."
+                translation_domain="uponorx265",
+                translation_key="temperature_not_controllable",
+                translation_placeholders={"room_name": self._room_name},
             )
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is not None and self._is_on:

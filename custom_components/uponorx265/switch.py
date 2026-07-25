@@ -29,10 +29,11 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 
 class AwaySwitch(UponorGatewayEntity, SwitchEntity):
+    _attr_translation_key = "away"
+    _attr_icon = "mdi:home-export-outline"
+
     def __init__(self, unique_instance_id, state_proxy, name):
         super().__init__(unique_instance_id, state_proxy)
-        self._attr_name = f"{name} Away"
-        self._attr_icon = "mdi:home-export-outline"
         self._attr_unique_id = f"{unique_instance_id}_away"
 
     @property
@@ -49,10 +50,11 @@ class AwaySwitch(UponorGatewayEntity, SwitchEntity):
 
 
 class CoolSwitch(UponorGatewayEntity, SwitchEntity):
+    _attr_translation_key = "cool_mode"
+    _attr_icon = "mdi:snowflake"
+
     def __init__(self, unique_instance_id, state_proxy, name):
         super().__init__(unique_instance_id, state_proxy)
-        self._attr_name = f"{name} Cooling Mode"
-        self._attr_icon = "mdi:snowflake"
         self._attr_unique_id = f"{unique_instance_id}_cool"
 
     @property
@@ -69,9 +71,10 @@ class CoolSwitch(UponorGatewayEntity, SwitchEntity):
 
 
 class LocalOverride(UponorThermostatEntity, SwitchEntity):
+    _attr_translation_key = "local_override"
+
     def __init__(self, unique_instance_id, state_proxy, thermostat):
         super().__init__(unique_instance_id, state_proxy, thermostat)
-        self._attr_name = f"{self._room_name} {PRESET_MANUAL}"
         self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_local_override"
 
     @property

@@ -536,26 +536,26 @@ class UponorStateProxy:
       
             if prodk=="269":
                 if mod=="1":
-                    return ('T144')
+                    return ('T-144')
                 if mod=="2":
-                    return ('T145')
+                    return ('T-145')
             _LOGGER.debug(f"id {hwid} s/n start {sn} rh_c {self.has_humidity_control(thermostat)} rh_s {self.has_humidity_sensor(thermostat)} pd {self.is_public_device(thermostat)} hft {self.has_floor_temperature(thermostat)} Sensor only {self.is_sensor_only(thermostat)}")
 # Smartix Base Pulse                   
-#                   return("T141") #No temp adjustment/RH
-#                   return("T143") #No temp adjustment/External temp/Tamper Alarm
-#                   return("T144") #Nobb for temp/inwall mount same as T145
-#                   return("T146") #Digital display/External temp
-#                   return("T148") #Digital display/External temp/RH/TimeDate
-#                   return("T149") #Digital display/External temp/RH 
+#                   return("T-141") #No temp adjustment/RH
+#                   return("T-143") #No temp adjustment/External temp/Tamper Alarm
+#                   return("T-144") #Nobb for temp/inwall mount same as T145
+#                   return("T-146") #Digital display/External temp
+#                   return("T-148") #Digital display/External temp/RH/TimeDate
+#                   return("T-149") #Digital display/External temp/RH 
 # Smatrix Wave Pulse
-#                   return("T161") #No temp adjustment/RH
-#                   return("T162") #Digital display/External temp                  
-#                   return("T163") #No temp adjustment/External temp/Tamper Alarm
-#                   return("T165") #Nobb for temp
-#                   return("T166") #Digital display/External temp
-#                   return("T168") #Digital display/External temp/RH/TimeDate
-#                   return("T169") #Digital display/External temp/RH
-#                    return("T247")
+#                   return("T-161") #No temp adjustment/RH
+#                   return("T-162") #Digital display/External temp                  
+#                   return("T-163") #No temp adjustment/External temp/Tamper Alarm
+#                   return("T-165") #Nobb for temp
+#                   return("T-166") #Digital display/External temp
+#                   return("T-168") #Digital display/External temp/RH/TimeDate
+#                   return("T-169") #Digital display/External temp/RH
+#                    return("T-247")
         return hwid
 
     def get_model(self):

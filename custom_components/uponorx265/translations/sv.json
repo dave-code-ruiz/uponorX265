@@ -10,6 +10,25 @@
           "unique_id": "Valfritt unikt ID (måste vara unikt för varje post)"
         }
       },
+      "controllers": {
+        "title": "Styrenheter",
+        "description": "Ange namn för styrenheter och välj om styrenheternas enheter ska skapas i HA",
+        "data": {
+          "create_controllers": "Skapa styrenhetssensorer",
+          "c1": "Namn på styrenhet 1",
+          "c2": "Namn på styrenhet 2",
+          "c3": "Namn på styrenhet 3",
+          "c4": "Namn på styrenhet 4"
+        }
+      },
+      "features": {
+        "title": "Sensorer",
+        "description": "Välj vilka valfria sensorer som ska skapas per termostat",
+        "data": {
+          "sensor_temperature": "Skapa rumstemperatursensor",
+          "binary_sensor_valve": "Skapa ventil-binärsensor"
+        }
+      },
       "rooms": {
         "title": "Uponor-termostater",
         "description": "Ange namn för Uponors termostater",
@@ -81,6 +100,120 @@
         "data": {
           "host": "Värdnamn eller IP-adress till Uponor-styrenheten"
         }
+      },
+      "features": {
+        "title": "Sensorer",
+        "description": "Välj vilka valfria sensorer som ska skapas per termostat",
+        "data": {
+          "sensor_temperature": "Skapa rumstemperatursensor",
+          "binary_sensor_valve": "Skapa ventil-binärsensor"
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "temperature_not_controllable": {
+      "message": "{room_name}: temperaturen styrs av det fysiska termostatvredet. Byt till förinställningen 'HA-styrd' för att ställa in temperaturen från Home Assistant."
+    }
+  },
+  "entity": {
+    "climate": {
+      "uponor_climate": {
+        "state_attributes": {
+          "preset_mode": {
+            "state": {
+              "ha_controlled": "HA-styrd"
+            }
+          }
+        },
+        "extra_state_attributes": {
+          "id": {
+            "name": "ID"
+          },
+          "status": {
+            "name": "Status",
+            "state": {
+              "ok": "OK",
+              "battery_error": "Batterifel",
+              "valve_error": "Ventilpositionsfel",
+              "air_sensor_error": "Luftsensorfel",
+              "ext_sensor_error": "Extern sensorfel",
+              "rh_sensor_error": "Fuktighetssensorfel",
+              "rf_sensor_error": "RF-sensorfel",
+              "tamper_error": "Manipuleringsfel",
+              "api_error": "API-fel",
+              "general_error": "Allmänt systemfel"
+            }
+          },
+          "pulse_width_modulation": {
+            "name": "Pulsbreddsmodulering"
+          },
+          "eco_setback": {
+            "name": "ECO-sänkning"
+          }
+        }
+      }
+    },
+    "sensor": {
+      "gateway_status": {
+        "name": "Gateway-status",
+        "state": {
+          "online": "Online",
+          "offline": "Offline",
+          "comfail_main_controller": "Kommunikationsfel med huvudstyrenhet"
+        }
+      },
+      "controller_status": {
+        "name": "Status",
+        "state": {
+          "ok": "OK",
+          "comfail_controller": "Kommunikationsfel styrenhet",
+          "comfail_out": "Kommunikationsfel utmodul",
+          "general_error": "Allmänt systemfel"
+        }
+      },
+      "thermostat_status": {
+        "name": "Status",
+        "state": {
+          "ok": "OK",
+          "battery_error": "Batterifel",
+          "valve_error": "Ventilpositionsfel",
+          "air_sensor_error": "Luftsensorfel",
+          "ext_sensor_error": "Extern sensorfel",
+          "rh_sensor_error": "Fuktighetssensorfel",
+          "rf_sensor_error": "RF-sensorfel",
+          "tamper_error": "Manipuleringsfel",
+          "api_error": "API-fel",
+          "general_error": "Allmänt systemfel"
+        }
+      },
+      "floor_temp": {
+        "name": "Golvtemperatur"
+      },
+      "room_temp": {
+        "name": "Rumstemperatur"
+      },
+      "humidity": {
+        "name": "Luftfuktighet"
+      },
+      "room_avg_temp": {
+        "name": "Medelrumstemperatur"
+      }
+    },
+    "switch": {
+      "away": {
+        "name": "Borta"
+      },
+      "cool_mode": {
+        "name": "Kylläge"
+      },
+      "local_override": {
+        "name": "HA-styrd"
+      }
+    },
+    "binary_sensor": {
+      "valve": {
+        "name": "Ventil"
       }
     }
   },
