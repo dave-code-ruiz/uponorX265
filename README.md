@@ -81,6 +81,7 @@ the setpoint to the minimum (heating mode) or maximum (cooling mode) configured 
 | Away | Activates away/ECO mode for all thermostats |
 | Cooling mode | Switches the entire system between heating and cooling mode (only shown if cooling is available) |
 | HA controlled (per room) | Per-thermostat toggle for HA temperature control (mirrors the HA controlled preset) |
+| Included in average (per room) | Toggles whether the thermostat contributes to the controller's average room temperature (enabled in setup, default: off) |
 
 ### Sensors
 
