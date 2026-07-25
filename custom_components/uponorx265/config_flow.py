@@ -19,6 +19,7 @@ from .const import (
     CONF_CREATE_CONTROLLERS,
     CONF_SENSOR_TEMP,
     CONF_BINARY_SENSOR_VALVE,
+    CONF_SWITCH_SENSOR_AVG,
 )
 
 from .helper import (
@@ -123,6 +124,10 @@ class DomainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(
                 CONF_BINARY_SENSOR_VALVE,
                 default=current_data.get(CONF_BINARY_SENSOR_VALVE, False),
+            ): bool,
+            vol.Required(
+                CONF_SWITCH_SENSOR_AVG,
+                default=current_data.get(CONF_SWITCH_SENSOR_AVG, False),
             ): bool,
         })
 
@@ -229,5 +234,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             vol.Required(
                 CONF_BINARY_SENSOR_VALVE,
                 default=current_data.get(CONF_BINARY_SENSOR_VALVE, False),
+            ): bool,
+            vol.Required(
+                CONF_SWITCH_SENSOR_AVG,
+                default=current_data.get(CONF_SWITCH_SENSOR_AVG, False),
             ): bool,
         })

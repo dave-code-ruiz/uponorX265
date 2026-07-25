@@ -4,7 +4,7 @@ import logging
 
 import voluptuous as vol
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 
@@ -187,6 +187,12 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
             DOMAIN, "set_variable", _create_set_variable_handler(hass), schema=SET_VARIABLE_SCHEMA
         )
 
+    if not hass.services.has_service(DOMAIN, "dump_hardware_info"):
+        hass.services.async_register(
+            DOMAIN, "dump_hardware_info", _create_dump_hardware_handler(hass),
+            supports_response=SupportsResponse.ONLY,
+        )
+
     # Migrate entity unique_ids from pre-1.1.2 bare format to prefixed format.
     # Must run before platform setup so HA matches existing registry entries
     # to the new unique_ids instead of creating duplicate entities.
@@ -245,6 +251,63 @@ def _create_set_variable_handler(hass: HomeAssistant):
             await proxy.async_set_variable(var_name, var_value)
 
     return handle_set_variable
+
+
+def _create_dump_hardware_handler(hass: HomeAssistant):
+    """Build the uponorx265.dump_hardware_info service handler.
+
+    Returns hardware IDs and capability flags for every thermostat and
+    controller as a service response, visible directly in Developer Tools.
+    """
+    async def handle_dump_hardware_info(call) -> dict:
+        all_proxies = _get_all_state_proxies(hass)
+        if not all_proxies:
+            _LOGGER.warning("dump_hardware_info: no gateways loaded")
+            return {}
+
+        result = {"gateways": []}
+
+        for unique_id, proxy in all_proxies.items():
+            gateway = {
+                "gateway_id": proxy.get_gateway_id(),
+                "gateway_model": proxy.get_model(),
+                "controllers": [],
+                "thermostats": [],
+            }
+
+            thermostats = hass.data.get(unique_id, {}).get("thermostats", [])
+            seen_controllers = set()
+            for thermostat in thermostats:
+                controller = thermostat.split('_')[0]
+                if controller not in seen_controllers:
+                    seen_controllers.add(controller)
+                    ctrl_id = proxy.get_controller_id(controller)
+                    gateway["controllers"].append({
+                        "controller": controller,
+                        "sn_start": ctrl_id[:4] if ctrl_id else None,
+                        "hardware_type_raw": proxy._data.get(controller + '_hardware_type'),
+                        "detected_model": str(proxy.get_controller_hardware(controller)),
+                        "sw_version": proxy.get_controller_version(controller),
+                    })
+
+                t_id = proxy.get_thermostat_id(thermostat)
+                gateway["thermostats"].append({
+                    "thermostat": thermostat,
+                    "sn_start": t_id[:4] if t_id else None,
+                    "hardware_type_raw": proxy._data.get(thermostat + '_thermostat_type'),
+                    "detected_model": str(proxy.get_thermostat_model(thermostat)),
+                    "has_humidity_control": proxy.has_humidity_control(thermostat),
+                    "has_humidity_sensor": proxy.has_humidity_sensor(thermostat),
+                    "has_floor_temperature": proxy.has_floor_temperature(thermostat),
+                    "is_public_device": proxy.is_public_device(thermostat),
+                    "is_sensor_only": proxy.is_sensor_only(thermostat),
+                })
+
+            result["gateways"].append(gateway)
+
+        return result
+
+    return handle_dump_hardware_info
 
 
 class UponorStateProxy:
@@ -377,6 +440,17 @@ class UponorStateProxy:
             if temp != 32767 and temp <= TOO_HIGH_TEMP_LIMIT:
                 return round((temp - 320) / 18, 1)
         return None
+
+    def get_inavg(self, thermostat):
+        var = thermostat.replace('_T', '_channel_') + '_ave_temp'
+        return self._data.get(var) == "1"
+        
+    async def async_iset_inavg(self, thermostat, override):
+        var = thermostat.replace('_T', '_channel_') + '_ave_temp'
+        data = "1" if override else "0"
+        await self._client.send_data({var: data})
+        self._data[var] = data
+        self._hass.async_create_task(self.call_state_update())        
 
     def _get_room_name_from_data(self, thermostat):
         var = 'cust_' + thermostat + '_name'

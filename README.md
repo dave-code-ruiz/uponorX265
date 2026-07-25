@@ -81,6 +81,7 @@ the setpoint to the minimum (heating mode) or maximum (cooling mode) configured 
 | Away | Activates away/ECO mode for all thermostats |
 | Cooling mode | Switches the entire system between heating and cooling mode (only shown if cooling is available) |
 | HA controlled (per room) | Per-thermostat toggle for HA temperature control (mirrors the HA controlled preset) |
+| Included in average (per room) | Toggles whether the thermostat contributes to the controller's average room temperature (enabled in setup, default: off) |
 
 ### Sensors
 
@@ -107,15 +108,51 @@ The language used is the **HA system language** (Settings → System → General
 not the individual user's profile language. Swedish (`sv`) and English (`en`) are supported;
 English is the fallback for all other languages.
 
-## Service
+## Services
 
-`uponorx265.set_variable` — sends a raw variable update to the Uponor API. Use with caution.
+### `uponorx265.set_variable`
+
+Sends a raw variable update to the Uponor API. Use with caution.
 
 | Field | Required | Description |
 |---|---|---|
 | `var_name` | Yes | Variable name, e.g. `sys_heat_cool_mode` |
 | `var_value` | Yes | Value to set |
 | `device_id` | No | Target gateway device. Required if more than one gateway is configured. |
+
+### `uponorx265.dump_hardware_info`
+
+Returns raw hardware IDs and capability flags for every thermostat and controller
+as a service response, shown directly in **Developer Tools → Services**.
+Useful for identifying unrecognised device models and reporting them as issues.
+
+Example output:
+```yaml
+gateways:
+  - gateway_id: "101683"
+    gateway_model: R-208
+    controllers:
+      - controller: C1
+        sn_start: "4195"
+        hardware_type_raw: "0"
+        detected_model: X-245
+        sw_version: "1.22"
+      - controller: C2
+        sn_start: "4195"
+        hardware_type_raw: "0"
+        detected_model: X-245
+        sw_version: "1.22"
+    thermostats:
+      - thermostat: C1_T1
+        sn_start: "2692"
+        hardware_type_raw: "0"
+        detected_model: T-145
+        has_humidity_control: 0
+        has_humidity_sensor: false
+        has_floor_temperature: false
+        is_public_device: 0
+        is_sensor_only: 0
+```
 
 ## Limitations
 
@@ -137,4 +174,4 @@ For the older Uponor X-165 module, see: https://github.com/dave-code-ruiz/uhomeu
 
 ## Feedback
 
-Issues and pull requests are welcome at https://github.com/fjonson95/uponorX265
+Your feedback, pull requests or any other contribution are welcome.

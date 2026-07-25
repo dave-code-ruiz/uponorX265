@@ -34,5 +34,6 @@ PRESET_MANUAL = 'ha_controlled'
 CONF_CREATE_CONTROLLERS = "create_controllers"
 CONF_SENSOR_TEMP = "sensor_temperature"
 CONF_BINARY_SENSOR_VALVE = "binary_sensor_valve"
+CONF_SWITCH_SENSOR_AVG = "switch_sensor_avg"
 TOO_HIGH_TEMP_LIMIT = 4508
 DEFAULT_TEMP = 20
