@@ -127,33 +127,31 @@ as a service response, shown directly in **Developer Tools → Services**.
 Useful for identifying unrecognised device models and reporting them as issues.
 
 Example output:
-```json
-{
-  "gateway_id": "aabbccddeeff",
-  "controllers": [
-    {
-      "controller": "C1",
-      "name": "Floor 1",
-      "controller_id": "4195...",
-      "hardware_type_raw": "11",
-      "detected_model": "X-245"
-    }
-  ],
-  "thermostats": [
-    {
-      "thermostat": "C1_T1",
-      "name": "Living room",
-      "thermostat_id": "2691...",
-      "hardware_type_raw": "7",
-      "detected_model": "T-144",
-      "has_humidity_control": false,
-      "has_humidity_sensor": false,
-      "has_floor_temperature": true,
-      "is_public_device": false,
-      "is_sensor_only": false
-    }
-  ]
-}
+```yaml
+gateways:
+  - gateway_id: "101683"
+    gateway_model: R-208
+    controllers:
+      - controller: C1
+        sn_start: "4195"
+        hardware_type_raw: "0"
+        detected_model: X-245
+        sw_version: "1.22"
+      - controller: C2
+        sn_start: "4195"
+        hardware_type_raw: "0"
+        detected_model: X-245
+        sw_version: "1.22"
+    thermostats:
+      - thermostat: C1_T1
+        sn_start: "2692"
+        hardware_type_raw: "0"
+        detected_model: T-145
+        has_humidity_control: 0
+        has_humidity_sensor: false
+        has_floor_temperature: false
+        is_public_device: 0
+        is_sensor_only: 0
 ```
 
 ## Limitations
