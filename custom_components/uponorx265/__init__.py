@@ -284,8 +284,6 @@ def _create_dump_hardware_handler(hass: HomeAssistant):
                     ctrl_id = proxy.get_controller_id(controller)
                     gateway["controllers"].append({
                         "controller": controller,
-                        "name": proxy.get_controller_name(controller),
-                        "controller_id": ctrl_id,
                         "sn_start": ctrl_id[:4] if ctrl_id else None,
                         "hardware_type_raw": proxy._data.get(controller + '_hardware_type'),
                         "detected_model": str(proxy.get_controller_hardware(controller)),
@@ -295,8 +293,6 @@ def _create_dump_hardware_handler(hass: HomeAssistant):
                 t_id = proxy.get_thermostat_id(thermostat)
                 gateway["thermostats"].append({
                     "thermostat": thermostat,
-                    "name": proxy.get_room_name(thermostat),
-                    "thermostat_id": t_id,
                     "sn_start": t_id[:4] if t_id else None,
                     "hardware_type_raw": proxy._data.get(thermostat + '_thermostat_type'),
                     "detected_model": str(proxy.get_thermostat_model(thermostat)),
