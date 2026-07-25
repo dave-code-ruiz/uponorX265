@@ -13,5 +13,5 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/fjonson95/uponorX265/issues",
   "requirements": ["getmac"],
-  "version": "1.1.6"
+  "version": "1.1.7"
 }
