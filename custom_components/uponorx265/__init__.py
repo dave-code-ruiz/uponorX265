@@ -441,6 +441,17 @@ class UponorStateProxy:
                 return round((temp - 320) / 18, 1)
         return None
 
+    def get_inavg(self, thermostat):
+        var = thermostat.replace('_T', '_channel_') + '_ave_temp'
+        return self._data.get(var) == "1"
+        
+    async def async_iset_inavg(self, thermostat, override):
+        var = thermostat.replace('_T', '_channel_') + '_ave_temp'
+        data = "1" if override else "0"
+        await self._client.send_data({var: data})
+        self._data[var] = data
+        self._hass.async_create_task(self.call_state_update())        
+
     def _get_room_name_from_data(self, thermostat):
         var = 'cust_' + thermostat + '_name'
         return self._data.get(var)

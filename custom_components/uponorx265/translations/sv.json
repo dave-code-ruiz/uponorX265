@@ -26,7 +26,8 @@
         "description": "Välj vilka valfria sensorer som ska skapas per termostat",
         "data": {
           "sensor_temperature": "Skapa rumstemperatursensor",
-          "binary_sensor_valve": "Skapa ventil-binärsensor"
+          "binary_sensor_valve": "Skapa ventil-binärsensor",
+          "switch_sensor_avg": "Skapa switch för medelvärdesinkludering"
         }
       },
       "rooms": {
@@ -106,7 +107,8 @@
         "description": "Välj vilka valfria sensorer som ska skapas per termostat",
         "data": {
           "sensor_temperature": "Skapa rumstemperatursensor",
-          "binary_sensor_valve": "Skapa ventil-binärsensor"
+          "binary_sensor_valve": "Skapa ventil-binärsensor",
+          "switch_sensor_avg": "Skapa binärsensor för medelvärdesinkludering"
         }
       }
     }
@@ -209,6 +211,9 @@
       },
       "local_override": {
         "name": "HA-styrd"
+      },
+      "avg_included": {
+        "name": "Ingår i medelvärde"
       }
     },
     "binary_sensor": {

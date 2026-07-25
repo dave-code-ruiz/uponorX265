@@ -26,7 +26,8 @@
         "description": "Choose which optional sensors to create per thermostat",
         "data": {
           "sensor_temperature": "Create room temperature sensor",
-          "binary_sensor_valve": "Create valve binary sensor"
+          "binary_sensor_valve": "Create valve binary sensor",
+          "switch_sensor_avg": "Create average inclusion switch"
         }
       },
       "rooms": {
@@ -106,7 +107,8 @@
         "description": "Choose which optional sensors to create per thermostat",
         "data": {
           "sensor_temperature": "Create room temperature sensor",
-          "binary_sensor_valve": "Create valve binary sensor"
+          "binary_sensor_valve": "Create valve binary sensor",
+          "switch_sensor_avg": "Create average inclusion switch"
         }
       }
     }
@@ -209,6 +211,9 @@
       },
       "local_override": {
         "name": "HA controlled"
+      },
+      "avg_included": {
+        "name": "Included in average"
       }
     },
     "binary_sensor": {
