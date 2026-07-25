@@ -121,8 +121,8 @@ Sends a raw variable update to the Uponor API. Use with caution.
 
 ### `uponorx265.dump_hardware_info`
 
-Writes a JSON file to the HA config directory (`/config/uponorx265_hardware_<gateway_id>.json`)
-containing raw hardware IDs and capability flags for every thermostat and controller.
+Returns raw hardware IDs and capability flags for every thermostat and controller
+as a service response, shown directly in **Developer Tools → Services**.
 Useful for identifying unrecognised device models and reporting them as issues.
 
 Example output:
