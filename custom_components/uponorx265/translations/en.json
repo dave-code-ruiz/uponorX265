@@ -115,7 +115,7 @@
   },
   "exceptions": {
     "temperature_not_controllable": {
-      "message": "{room_name}: temperature is controlled by the physical thermostat dial. Switch to the 'HA-styrd' preset to set temperature from Home Assistant."
+      "message": "{room_name}: temperature is controlled by the physical thermostat dial. Switch to the 'HA controlled' preset to set temperature from Home Assistant."
     }
   },
   "entity": {

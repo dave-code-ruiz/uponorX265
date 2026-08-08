@@ -31,6 +31,10 @@ STATUS_OFFLINE                  = 'offline'
 STATUS_ERROR_MAINCONTROLER_FAIL = 'comfail_main_controller'
 PRESET_MANUAL = 'ha_controlled'
 
+# Dial thermostats accept remote setpoint changes only while local override
+# is enabled; all other models accept them directly.
+DIAL_THERMOSTAT_MODELS = ("T-144", "T-145")
+
 CONF_CREATE_CONTROLLERS = "create_controllers"
 CONF_SENSOR_TEMP = "sensor_temperature"
 CONF_BINARY_SENSOR_VALVE = "binary_sensor_valve"
