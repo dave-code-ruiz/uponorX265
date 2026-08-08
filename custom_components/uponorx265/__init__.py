@@ -45,7 +45,8 @@ from .const import (
     STATUS_ERROR_MAINCONTROLER_FAIL,
     TOO_HIGH_TEMP_LIMIT,
     DEFAULT_TEMP,
-    DEVICE_MANUFACTURER
+    DEVICE_MANUFACTURER,
+    DIAL_THERMOSTAT_MODELS
 )
 from .jnap import UponorJnap
 from .helper import get_unique_id_from_config_entry, _get_mac_with_arp_refresh 
@@ -583,6 +584,14 @@ class UponorStateProxy:
                     if (room_name := self._get_room_name_from_data(thermostat))
                 },
             },
+            "models": {
+                **self._storage_metadata.get("models", {}),
+                **{
+                    thermostat: model
+                    for thermostat in thermostats
+                    if (model := self._detect_thermostat_model(thermostat))
+                },
+            },
             "humidity": list(dict.fromkeys(
                 [thermostat for thermostat in thermostats if thermostat + '_rh' in self._data and int(self._data[thermostat + '_rh']) != 0]
                 + self._storage_metadata.get("humidity", [])
@@ -636,6 +645,14 @@ class UponorStateProxy:
         return thermostat
 
     def get_thermostat_model(self, thermostat):
+        model = self._detect_thermostat_model(thermostat)
+        if model is not None:
+            return model
+        # Fall back to the cached detection so the model (and the gating that
+        # depends on it) is available before the first live update.
+        return self._storage_metadata.get("models", {}).get(thermostat)
+
+    def _detect_thermostat_model(self, thermostat):
         var = thermostat + '_thermostat_type'
         if var not in self._data:
             return None
@@ -784,12 +801,7 @@ class UponorStateProxy:
         return int(self._data[var]) * mode
 
     def requires_local_override(self, thermostat):
-        # T-144/T-145 dial thermostats accept remote setpoint changes only
-        # while local override is enabled. Detection mirrors
-        # get_thermostat_model but works from the cached thermostat id, so it
-        # is usable before the first live update.
-        sn = str(self.get_thermostat_id(thermostat))[:4]
-        return sn[:3] == "269" and sn[3:4] in ("1", "2")
+        return self.get_thermostat_model(thermostat) in DIAL_THERMOSTAT_MODELS
 
     def get_local_override(self, thermostat):
         var = thermostat + '_pub_setpoint_override'
