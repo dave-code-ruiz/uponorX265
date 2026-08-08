@@ -111,19 +111,30 @@ def _resolve_target_proxies(hass: HomeAssistant, call) -> list:
 
 
 def _migrate_entity_unique_ids(hass: HomeAssistant, config_entry: ConfigEntry, unique_instance_id: str) -> None:
-    
+    """Migrate entity registry entries to the current unique_id formats.
+
+    Two historical format changes are handled, composing so that an upgrade
+    from any older version lands on the current format in one pass:
+    - pre-1.1.2: bare ids (no config-entry prefix) gain the prefix
+    - pre-1.1.5: climate ids (no '_climate' suffix) gain the suffix
+    """
     ent_reg = entity_registry.async_get(hass)
     entries = entity_registry.async_entries_for_config_entry(ent_reg, config_entry.entry_id)
     prefix = f"{unique_instance_id}_"
 
     for entry in entries:
-        if entry.unique_id.startswith(prefix):
+        new_unique_id = entry.unique_id
+        if not new_unique_id.startswith(prefix):
+            new_unique_id = f"{prefix}{new_unique_id}"
+        if entry.domain == "climate" and not new_unique_id.endswith("_climate"):
+            new_unique_id = f"{new_unique_id}_climate"
+
+        if new_unique_id == entry.unique_id:
             continue
 
-        new_unique_id = f"{prefix}{entry.unique_id}"
-
-        # Scenario 2: prefixed entity already exists (created by 1.1.2 as '_2').
-        # Remove the stale bare-id entry instead of failing.
+        # Scenario 2: an entity with the new unique_id already exists (created
+        # as a duplicate by a version that lacked this migration). Remove the
+        # stale old-id entry instead of failing.
         existing_entity_id = ent_reg.async_get_entity_id(entry.domain, DOMAIN, new_unique_id)
         if existing_entity_id is not None:
             _LOGGER.info(
@@ -193,7 +204,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
             supports_response=SupportsResponse.ONLY,
         )
 
-    # Migrate entity unique_ids from pre-1.1.2 bare format to prefixed format.
+    # Migrate entity unique_ids from older formats (pre-1.1.2 bare ids,
+    # pre-1.1.5 climate ids without '_climate' suffix).
     # Must run before platform setup so HA matches existing registry entries
     # to the new unique_ids instead of creating duplicate entities.
     _migrate_entity_unique_ids(hass, config_entry, unique_id)
