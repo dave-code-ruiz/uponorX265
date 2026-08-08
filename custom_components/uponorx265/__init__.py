@@ -614,18 +614,19 @@ class UponorStateProxy:
 
     def get_thermostat_model(self, thermostat):
         var = thermostat + '_thermostat_type'
-        if var in self._data:
-            hwid = int(self._data[var])
-            sn = self.get_thermostat_id(thermostat)[:4]
-            prodk = sn[:3]
-            mod = sn[-1:]
-      
-            if prodk=="269":
-                if mod=="1":
-                    return ('T-144')
-                if mod=="2":
-                    return ('T-145')
-            _LOGGER.debug(f"id {hwid} s/n start {sn} rh_c {self.has_humidity_control(thermostat)} rh_s {self.has_humidity_sensor(thermostat)} pd {self.is_public_device(thermostat)} hft {self.has_floor_temperature(thermostat)} Sensor only {self.is_sensor_only(thermostat)}")
+        if var not in self._data:
+            return None
+        hwid = int(self._data[var])
+        sn = self.get_thermostat_id(thermostat)[:4]
+        prodk = sn[:3]
+        mod = sn[-1:]
+
+        if prodk=="269":
+            if mod=="1":
+                return ('T-144')
+            if mod=="2":
+                return ('T-145')
+        _LOGGER.debug(f"id {hwid} s/n start {sn} rh_c {self.has_humidity_control(thermostat)} rh_s {self.has_humidity_sensor(thermostat)} pd {self.is_public_device(thermostat)} hft {self.has_floor_temperature(thermostat)} Sensor only {self.is_sensor_only(thermostat)}")
 # Smartix Base Pulse                   
 #                   return("T-141") #No temp adjustment/RH
 #                   return("T-143") #No temp adjustment/External temp/Tamper Alarm
