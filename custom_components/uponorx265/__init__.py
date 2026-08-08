@@ -403,7 +403,7 @@ class UponorStateProxy:
 #                   return("X-265")
 # Smatrix Base PRO
 #                   return("X-147")
-# Modbus RTU model  return("X-147") 
+# Modbus RTU model  return("X-147")
             return hwid
 
     def get_controller_name(self, controller):
@@ -413,7 +413,12 @@ class UponorStateProxy:
         var = 'cust_' + controller.replace('C', 'Controller') + '_Name'
         if var in self._data:
             return self._data[var]
-        return self._storage_metadata.get("controller_names", {}).get(controller)
+        cached_name = self._storage_metadata.get("controller_names", {}).get(controller)
+        if cached_name:
+            return cached_name
+        # Fall back to a generated name ("<gateway name> Controller 1") so
+        # controller devices are never registered unnamed.
+        return f"{self.get_integration_name()} {controller.replace('C', 'Controller ')}"
 
     def get_integration_name(self) -> str:
         """Return the user-configured name for this integration instance (gateway)."""
