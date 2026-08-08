@@ -23,6 +23,12 @@ It has been tested with the X-265 and X-245 controllers. Up to 4 controllers wit
 
 4. Go to **Settings → Devices & Services → Add Integration → UponorX265** and complete the setup wizard.
 
+
+## Model data
+
+If the model of your thermostat/controller does not match or is missing, please run `uponorx265.dump_hardware_info` and upload the output in a support ticket.
+Don't forget to include information about which thermostat/controller model you have.
+   
 ## Setup wizard
 
 The setup wizard has four steps:
@@ -153,6 +159,15 @@ gateways:
         is_public_device: 0
         is_sensor_only: 0
 ```
+
+### `uponorx265.dump_raw_data`
+
+Returns the complete raw data dictionary received from the gateway as a service response,
+shown directly in **Developer Tools → Services**.
+Useful for inspecting all available variables and their current values — for example when
+trying to map an unknown variable or verify that a write has taken effect.
+
+If more than one gateway is configured the response is grouped by gateway unique ID.
 
 ## Limitations
 

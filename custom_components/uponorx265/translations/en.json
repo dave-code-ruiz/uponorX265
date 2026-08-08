@@ -201,6 +201,10 @@
       "name": "Dump Hardware Info",
       "description": "Returns raw hardware IDs and capability flags for every thermostat and controller. The response is shown directly in Developer Tools → Services. Useful for identifying unknown device models."
     },
+    "dump_raw_data": {
+      "name": "Dump Raw Data",
+      "description": "Returns the complete raw data dictionary received from the gateway. Useful for inspecting all available variables and their current values."
+    },
     "set_variable": {
       "name": "Set Variable",
       "description": "Send a variable update to the Uponor API",

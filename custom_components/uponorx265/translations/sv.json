@@ -201,6 +201,10 @@
       "name": "Dumpa hårdvaruinfo",
       "description": "Returnerar råa hårdvaru-ID:n och kapabilitetsflaggor för alla termostater och styrenheter. Svaret visas direkt i Utvecklarverktyg → Tjänster. Användbar för att identifiera okända enhetsmodeller."
     },
+    "dump_raw_data": {
+      "name": "Dumpa rådata",
+      "description": "Returnerar hela rådata-ordboken som tagits emot från gatewayen. Användbar för att inspektera alla tillgängliga variabler och deras aktuella värden."
+    },
     "set_variable": {
       "name": "Sätt variabel",
       "description": "Skicka en variabeluppdatering till Uponor API",

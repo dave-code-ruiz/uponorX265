@@ -193,6 +193,12 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
             supports_response=SupportsResponse.ONLY,
         )
 
+    if not hass.services.has_service(DOMAIN, "dump_raw_data"):
+        hass.services.async_register(
+            DOMAIN, "dump_raw_data", _create_dump_raw_data_handler(hass),
+            supports_response=SupportsResponse.ONLY,
+        )
+
     # Migrate entity unique_ids from pre-1.1.2 bare format to prefixed format.
     # Must run before platform setup so HA matches existing registry entries
     # to the new unique_ids instead of creating duplicate entities.
@@ -308,6 +314,27 @@ def _create_dump_hardware_handler(hass: HomeAssistant):
         return result
 
     return handle_dump_hardware_info
+
+
+def _create_dump_raw_data_handler(hass: HomeAssistant):
+    """Build the uponorx265.dump_raw_data service handler.
+
+    Returns the complete raw data dict received from the gateway,
+    visible directly in Developer Tools → Services.
+    """
+    async def handle_dump_raw_data(call) -> dict:
+        all_proxies = _get_all_state_proxies(hass)
+        if not all_proxies:
+            _LOGGER.warning("dump_raw_data: no gateways loaded")
+            return {}
+
+        if len(all_proxies) == 1:
+            proxy = next(iter(all_proxies.values()))
+            return dict(proxy._data)
+
+        return {uid: dict(proxy._data) for uid, proxy in all_proxies.items()}
+
+    return handle_dump_raw_data
 
 
 class UponorStateProxy:
