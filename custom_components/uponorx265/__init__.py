@@ -390,7 +390,7 @@ class UponorStateProxy:
             hwid = int(self._data[var])
             controller_id = self.get_controller_id(controller)
             if controller_id is None:
-                return hwid
+                return None
             sn = controller_id[:4]
             prodk = sn[:3]
             mod = sn[-1:]
@@ -404,7 +404,9 @@ class UponorStateProxy:
 # Smatrix Base PRO
 #                   return("X-147")
 # Modbus RTU model  return("X-147")
-            return hwid
+            # The raw hardware type is a device class, not a model id -
+            # report no model rather than a misleading number.
+            return None
 
     def get_controller_name(self, controller):
         configured_name = self._config_entry.data.get(controller.lower())
@@ -664,7 +666,9 @@ class UponorStateProxy:
 #                   return("T-168") #Digital display/External temp/RH/TimeDate
 #                   return("T-169") #Digital display/External temp/RH
 #                    return("T-247")
-        return hwid
+        # The raw hardware type is a device class, not a model id -
+        # report no model rather than a misleading number.
+        return None
 
     def get_model(self):
         return "R-208"
