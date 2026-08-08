@@ -169,8 +169,13 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
             else:
                 await self._state_proxy.async_set_preset_mode(preset_mode)
 
+    # T-144/T-145 dial thermostats ignore remote setpoint changes unless
+    # local override is enabled first; other models accept them directly.
+    _MODELS_REQUIRING_LOCAL_OVERRIDE = ("T-144", "T-145")
+
     async def async_set_temperature(self, **kwargs):
-        if not self._state_proxy.get_local_override(self._thermostat):
+        if (self._state_proxy.get_thermostat_model(self._thermostat) in self._MODELS_REQUIRING_LOCAL_OVERRIDE
+                and not self._state_proxy.get_local_override(self._thermostat)):
             self.hass.async_create_task(self._state_proxy.async_update())
             raise ServiceValidationError(
                 translation_domain="uponorx265",
