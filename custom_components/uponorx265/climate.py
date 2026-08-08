@@ -178,4 +178,4 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
             )
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is not None and self._is_on:
-            await self._state_proxy.async_set_setpoint(self._thermostat, temp)
+            await self._state_proxy.async_set_target_temperature(self._thermostat, temp)
