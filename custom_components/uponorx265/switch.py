@@ -22,8 +22,10 @@ async def async_setup_entry(hass, entry, async_add_entities):
         entities.append(CoolSwitch(unique_id, state_proxy))
 
     for thermostat in hass.data[unique_id]["thermostats"]:
-        entities.append(LocalOverride(unique_id, state_proxy, thermostat))
-        
+        # The local override switch only exists on T-144/T-145 dial thermostats.
+        if state_proxy.requires_local_override(thermostat):
+            entities.append(LocalOverride(unique_id, state_proxy, thermostat))
+
         if entry.data.get(CONF_SWITCH_SENSOR_AVG, False):
             entities.append(ClimatControlInAvg(unique_id, state_proxy, thermostat))
 

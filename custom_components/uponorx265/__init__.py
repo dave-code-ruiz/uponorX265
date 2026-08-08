@@ -158,6 +158,23 @@ def _migrate_entity_unique_ids(hass: HomeAssistant, config_entry: ConfigEntry, u
                 entry.entity_id, entry.unique_id, exc,
             )
 
+def _remove_unsupported_local_override_entities(hass: HomeAssistant, config_entry: ConfigEntry, unique_instance_id: str, state_proxy, thermostats) -> None:
+    """Remove local-override switches created for thermostats that do not support the feature."""
+    ent_reg = entity_registry.async_get(hass)
+    stale_unique_ids = {
+        f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_local_override"
+        for thermostat in thermostats
+        if not state_proxy.requires_local_override(thermostat)
+    }
+    for entry in entity_registry.async_entries_for_config_entry(ent_reg, config_entry.entry_id):
+        if entry.domain == "switch" and entry.unique_id in stale_unique_ids:
+            _LOGGER.info(
+                "Removing switch %s: thermostat does not support local override",
+                entry.entity_id,
+            )
+            ent_reg.async_remove(entry.entity_id)
+
+
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     # Sync options to data if they differ
     if config_entry.options:
@@ -338,6 +355,7 @@ class UponorStateProxy:
         self._reload_in_progress = False
         self._last_reload_attempt = None
         self._gateway_id = None
+        self._stale_override_switches_cleaned = False
         _LOGGER.debug(f"Configdata = {self._config_entry}")
     # Controlers config  
     def get_active_controllers(self):
@@ -756,6 +774,14 @@ class UponorStateProxy:
         mode = -1 if self.is_cool_enabled() else 1
         return int(self._data[var]) * mode
 
+    def requires_local_override(self, thermostat):
+        # T-144/T-145 dial thermostats accept remote setpoint changes only
+        # while local override is enabled. Detection mirrors
+        # get_thermostat_model but works from the cached thermostat id, so it
+        # is usable before the first live update.
+        sn = str(self.get_thermostat_id(thermostat))[:4]
+        return sn[:3] == "269" and sn[3:4] in ("1", "2")
+
     def get_local_override(self, thermostat):
         var = thermostat + '_pub_setpoint_override'
         return var in self._data and int(self._data[var]) != 0
@@ -921,6 +947,16 @@ class UponorStateProxy:
                 self._last_successful_update = dt_util.now()
                 self._unavailable_since = None
                 await self._async_persist_discovery_metadata()
+
+                # Runs here rather than at setup because model detection is
+                # only authoritative with live data; on a cache-based startup
+                # it would treat dial thermostats as unsupported.
+                if not self._stale_override_switches_cleaned:
+                    self._stale_override_switches_cleaned = True
+                    _remove_unsupported_local_override_entities(
+                        self._hass, self._config_entry, self._unique_id,
+                        self, self.get_active_thermostats(),
+                    )
 
                 self._hass.async_create_task(self.call_state_update())
                 return

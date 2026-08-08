@@ -45,7 +45,6 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
     _enable_turn_on_off_backwards_compatibility = False
     _attr_name = None  # Main entity — uses device name directly
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
-    _attr_preset_modes = [PRESET_COMFORT, PRESET_ECO, PRESET_AWAY, PRESET_MANUAL]
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE
         | ClimateEntityFeature.PRESET_MODE
@@ -58,6 +57,12 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
         self._is_on = True
         self._update_power_state()
         self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_climate"
+        # The 'HA controlled' preset (local override) only exists on
+        # T-144/T-145 dial thermostats.
+        self._requires_local_override = state_proxy.requires_local_override(thermostat)
+        self._attr_preset_modes = [PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
+        if self._requires_local_override:
+            self._attr_preset_modes.append(PRESET_MANUAL)
 
     def _update_power_state(self):
         temp_raw = self._state_proxy.get_setpoint_raw(self._thermostat)
@@ -113,7 +118,7 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
     
     @property
     def preset_mode(self):
-        if self._state_proxy.get_local_override(self._thermostat):
+        if self._requires_local_override and self._state_proxy.get_local_override(self._thermostat):
             return PRESET_MANUAL
         if self._state_proxy.is_away():
             return PRESET_AWAY
@@ -163,12 +168,8 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
                 await self._state_proxy.async_local_override(self._thermostat, False)
             await self._state_proxy.async_set_preset_mode(preset_mode)
 
-    # T-144/T-145 dial thermostats ignore remote setpoint changes unless
-    # local override is enabled first; other models accept them directly.
-    _MODELS_REQUIRING_LOCAL_OVERRIDE = ("T-144", "T-145")
-
     async def async_set_temperature(self, **kwargs):
-        if (self._state_proxy.get_thermostat_model(self._thermostat) in self._MODELS_REQUIRING_LOCAL_OVERRIDE
+        if (self._requires_local_override
                 and not self._state_proxy.get_local_override(self._thermostat)):
             self.hass.async_create_task(self._state_proxy.async_update())
             raise ServiceValidationError(
