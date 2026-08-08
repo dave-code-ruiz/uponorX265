@@ -115,10 +115,10 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
     def preset_mode(self):
         if self._state_proxy.get_local_override(self._thermostat):
             return PRESET_MANUAL
-        if self._state_proxy.is_eco(self._thermostat):
-            return PRESET_ECO
         if self._state_proxy.is_away():
             return PRESET_AWAY
+        if self._state_proxy.is_eco(self._thermostat):
+            return PRESET_ECO
         return PRESET_COMFORT
 
     @property
@@ -161,13 +161,7 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
             # Turn off manual override if we switch to another preset
             if self._state_proxy.get_local_override(self._thermostat):
                 await self._state_proxy.async_local_override(self._thermostat, False)
-            if preset_mode == PRESET_ECO:
-                if self._state_proxy.is_away():
-                    await self._state_proxy.async_set_preset_mode(PRESET_COMFORT)
-                else:
-                    await self._state_proxy.async_set_preset_mode(PRESET_AWAY)
-            else:
-                await self._state_proxy.async_set_preset_mode(preset_mode)
+            await self._state_proxy.async_set_preset_mode(preset_mode)
 
     # T-144/T-145 dial thermostats ignore remote setpoint changes unless
     # local override is enabled first; other models accept them directly.

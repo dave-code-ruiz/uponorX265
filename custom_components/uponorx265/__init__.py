@@ -52,7 +52,8 @@ from .helper import get_unique_id_from_config_entry, _get_mac_with_arp_refresh
 
 from homeassistant.components.climate.const import (
     PRESET_AWAY,
-    PRESET_COMFORT
+    PRESET_COMFORT,
+    PRESET_ECO
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -844,7 +845,7 @@ class UponorStateProxy:
         await self.async_set_setpoint(thermostat, off_temp)
 
     async def async_set_preset_mode(self, preset_mode):
-        if preset_mode == PRESET_AWAY:
+        if preset_mode in (PRESET_AWAY, PRESET_ECO):
             await self.async_set_away(True)
         elif preset_mode == PRESET_COMFORT:
             await self.async_set_away(False)
