@@ -180,10 +180,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 
     thermostats = state_proxy.get_cached_thermostats()
     if thermostats:
-        if config_entry.entry_id:
-            await state_proxy.async_update()
-        else:
-            hass.async_create_task(state_proxy.async_update())
+        hass.async_create_task(state_proxy.async_update())
     else:
         await state_proxy.async_update()
         thermostats = state_proxy.get_active_thermostats()
