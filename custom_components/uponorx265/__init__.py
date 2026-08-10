@@ -57,7 +57,7 @@ from homeassistant.components.climate.const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.CLIMATE, Platform.SWITCH, Platform.SENSOR, Platform.BINARY_SENSOR]
+PLATFORMS = [Platform.CLIMATE, Platform.SWITCH, Platform.SENSOR, Platform.BINARY_SENSOR, Platform.SELECT]
 
 SET_VARIABLE_SCHEMA = vol.Schema(
     {
@@ -294,6 +294,7 @@ def _create_dump_hardware_handler(hass: HomeAssistant):
                         "hardware_type_raw": proxy._data.get(controller + '_hardware_type'),
                         "detected_model": str(proxy.get_controller_hardware(controller)),
                         "sw_version": proxy.get_controller_version(controller),
+                        "relays_config": proxy._data.get(controller + '_controller_relays_config'),
                     })
 
                 t_id = proxy.get_thermostat_id(thermostat)
@@ -445,6 +446,27 @@ class UponorStateProxy:
                     self._gateway_id = self._host.replace('.', '')
         return self._gateway_id
 
+    def get_pump_management(self):
+        var = 'sys_pump_management'
+        return self._data.get(var)
+
+    async def async_set_pump_management(self, value):
+        var = 'sys_pump_management'
+        await self._client.send_data({var: value})
+        self._data[var] = value
+        self._hass.async_create_task(self.call_state_update())
+
+    def is_autoupdate(self):
+        var = 'cust_Enable_SW_Update'
+        return var in self._data and self._data[var] == "1"
+
+    async def async_set_autoupdate(self, set_on):
+        var = 'cust_Enable_SW_Update'
+        data = "1" if set_on else "0"
+        await self._client.send_data({var: data})
+        self._data[var] = data
+        self._hass.async_create_task(self.call_state_update())
+
     def get_gateway_status(self):
         if self.is_available() is None:
             return STATUS_OFFLINE
@@ -453,6 +475,26 @@ class UponorStateProxy:
             return STATUS_ERROR_MAINCONTROLER_FAIL        
         return STATUS_ONLINE 
         
+    def get_controller_relayconfig(self, controller):
+        var = controller + '_controller_relays_config'
+        if var in self._data:
+            match self._data[var]:
+                case "1":
+                    return "not_in_use"
+                case "3":
+                    return "pump_heater"
+                case "4":
+                    return "pump_eco_comfort"
+                case "7":
+                    return "not_configured"
+        return None
+
+    async def async_set_controller_relayconfig(self, controller, value):
+        var = controller + '_controller_relays_config'
+        await self._client.send_data({var: value})
+        self._data[var] = value
+        self._hass.async_create_task(self.call_state_update())
+
     def get_controller_version(self, controller):
         var = controller + '_sw_version'
         if var in self._data:
@@ -467,6 +509,20 @@ class UponorStateProxy:
             if temp != 32767 and temp <= TOO_HIGH_TEMP_LIMIT:
                 return round((temp - 320) / 18, 1)
         return None
+
+    def get_bypass_enable(self, thermostat):
+        return self._data.get(thermostat + '_bypass_enable') == "1"
+
+    async def async_set_bypass_enable(self, thermostat, value):
+        var = thermostat + '_bypass_enable'
+        data = "1" if value else "0"
+        await self._client.send_data({var: data})
+        self._data[var] = data
+        self._hass.async_create_task(self.call_state_update())
+
+    def get_pump_relay(self, controller):
+        var = controller + '_stat_pump_relay'
+        return self._data.get(var) == "1"
 
     def get_inavg(self, thermostat):
         var = thermostat.replace('_T', '_channel_') + '_ave_temp'

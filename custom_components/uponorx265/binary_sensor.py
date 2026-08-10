@@ -2,23 +2,35 @@ import logging
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
 
-from .const import CONF_BINARY_SENSOR_VALVE
-from .helper import get_unique_id_from_config_entry, UponorThermostatEntity
+from .const import CONF_BINARY_SENSOR_VALVE, CONF_CONTROLLER_IO, CONF_INSTALLER_SETTINGS
+from .helper import get_unique_id_from_config_entry, UponorThermostatEntity, UponorControllerEntity
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    if not entry.data.get(CONF_BINARY_SENSOR_VALVE, False):
-        return
-
     unique_id = get_unique_id_from_config_entry(entry)
     state_proxy = hass.data[unique_id]["state_proxy"]
+    entities = []
 
-    entities = [
-        UponorValveSensor(unique_id, state_proxy, thermostat)
-        for thermostat in hass.data[unique_id]["thermostats"]
-    ]
+    if entry.data.get(CONF_BINARY_SENSOR_VALVE, False):
+        entities += [
+            UponorValveSensor(unique_id, state_proxy, thermostat)
+            for thermostat in hass.data[unique_id]["thermostats"]
+        ]
+
+    if entry.data.get(CONF_CONTROLLER_IO, False):
+        seen_controllers = set()
+        for thermostat in hass.data[unique_id]["thermostats"]:
+            controller = thermostat.split('_')[0]
+            if controller not in seen_controllers:
+                seen_controllers.add(controller)
+                entities.append(ControllerPumpRelaySensor(unique_id, state_proxy, controller))
+
+    if not entry.data.get(CONF_INSTALLER_SETTINGS, False):
+        for thermostat in hass.data[unique_id]["thermostats"]:
+            entities.append(BypassReadOnlySensor(unique_id, state_proxy, thermostat))
+
     async_add_entities(entities)
 
 
@@ -36,3 +48,31 @@ class UponorValveSensor(UponorThermostatEntity, BinarySensorEntity):
     @property
     def is_on(self):
         return self._state_proxy.is_active(self._thermostat)
+
+
+class ControllerPumpRelaySensor(UponorControllerEntity, BinarySensorEntity):
+    _attr_translation_key = "pump_relay"
+    _attr_device_class = BinarySensorDeviceClass.RUNNING
+
+    def __init__(self, unique_instance_id, state_proxy, controller):
+        super().__init__(unique_instance_id, state_proxy, controller)
+        self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_controller_id(controller)}_pump_relay"
+
+    @property
+    def is_on(self):
+        return self._state_proxy.get_pump_relay(self._controller)
+
+
+class BypassReadOnlySensor(UponorControllerEntity, BinarySensorEntity):
+    _attr_icon = "mdi:valve"
+
+    def __init__(self, unique_instance_id, state_proxy, thermostat):
+        controller = thermostat.split('_')[0]
+        super().__init__(unique_instance_id, state_proxy, controller)
+        self._thermostat = thermostat
+        self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_bypass_enable"
+        self._attr_name = f"Bypass {state_proxy.get_room_name(thermostat)}"
+
+    @property
+    def is_on(self):
+        return self._state_proxy.get_bypass_enable(self._thermostat)

@@ -27,7 +27,9 @@
         "data": {
           "sensor_temperature": "Skapa rumstemperatursensor",
           "binary_sensor_valve": "Skapa ventil-binärsensor",
-          "switch_sensor_avg": "Skapa switch för medelvärdesinkludering"
+          "switch_sensor_avg": "Skapa switch för medelvärdesinkludering",
+          "controller_io": "Skapa relay/IO-sensorer för styrenhet",
+          "installer_settings": "Installatörsläge (reläer, bypass och pumpstyrning)"
         }
       },
       "rooms": {
@@ -108,7 +110,8 @@
         "data": {
           "sensor_temperature": "Skapa rumstemperatursensor",
           "binary_sensor_valve": "Skapa ventil-binärsensor",
-          "switch_sensor_avg": "Skapa binärsensor för medelvärdesinkludering"
+          "switch_sensor_avg": "Skapa binärsensor för medelvärdesinkludering",
+          "controller_io": "Skapa relay/IO-sensorer för styrenhet"
         }
       }
     }
@@ -174,6 +177,22 @@
       },
       "room_avg_temp": {
         "name": "Medelrumstemperatur"
+      },
+      "relay_config": {
+        "name": "Reglercentralens reläer",
+        "state": {
+          "not_in_use": "Ej i bruk",
+          "pump_heater": "Pump / Värmekälla",
+          "pump_eco_comfort": "Pump / Eco / Komfort",
+          "not_configured": "Ej konfigurerad"
+        }
+      },
+      "pump_management": {
+        "name": "Pumpstyrning",
+        "state": {
+          "individual": "Individuell",
+          "common": "Gemensam"
+        }
       }
     },
     "switch": {
@@ -188,11 +207,38 @@
       },
       "avg_included": {
         "name": "Ingår i medelvärde"
+      },
+      "bypass_enable": {
+        "name": "Bypass"
+      },
+      "auto_update": {
+        "name": "Automatisk firmwareuppdatering"
+      }
+    },
+    "select": {
+      "pump_management": {
+        "name": "Pumpstyrning",
+        "state": {
+          "individual": "Individuell",
+          "common": "Gemensam"
+        }
+      },
+      "relay_config": {
+        "name": "Reglercentralens reläer",
+        "state": {
+          "not_in_use": "Ej i bruk",
+          "pump_heater": "Pump / Värmekälla",
+          "pump_eco_comfort": "Pump / Eco / Komfort",
+          "not_configured": "Ej konfigurerad"
+        }
       }
     },
     "binary_sensor": {
       "valve": {
         "name": "Ventil"
+      },
+      "pump_relay": {
+        "name": "Pumprelä"
       }
     }
   },

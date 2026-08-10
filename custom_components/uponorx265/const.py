@@ -35,5 +35,7 @@ CONF_CREATE_CONTROLLERS = "create_controllers"
 CONF_SENSOR_TEMP = "sensor_temperature"
 CONF_BINARY_SENSOR_VALVE = "binary_sensor_valve"
 CONF_SWITCH_SENSOR_AVG = "switch_sensor_avg"
+CONF_CONTROLLER_IO = "controller_io"
+CONF_INSTALLER_SETTINGS = "installer_settings"
 TOO_HIGH_TEMP_LIMIT = 4508
 DEFAULT_TEMP = 20

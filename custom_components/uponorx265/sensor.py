@@ -4,7 +4,7 @@ from homeassistant.components.sensor import SensorEntity, SensorDeviceClass, Sen
 from homeassistant.const import UnitOfTemperature, PERCENTAGE
 from homeassistant.helpers.entity import EntityCategory
 
-from .const import STATUS_OK, CONF_CREATE_CONTROLLERS, CONF_SENSOR_TEMP
+from .const import STATUS_OK, CONF_CREATE_CONTROLLERS, CONF_SENSOR_TEMP, CONF_INSTALLER_SETTINGS
 from .helper import get_unique_id_from_config_entry, UponorGatewayEntity, UponorThermostatEntity, UponorControllerEntity
 
 _LOGGER = logging.getLogger(__name__)
@@ -21,6 +21,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
     create_controllers = entry.data.get(CONF_CREATE_CONTROLLERS, True)
     create_temp_sensor = entry.data.get(CONF_SENSOR_TEMP, True)
+    installer_settings = entry.data.get(CONF_INSTALLER_SETTINGS, False)
 
     seen_controllers = set()
     for thermostat in hass.data[unique_id]["thermostats"]:
@@ -30,6 +31,11 @@ async def async_setup_entry(hass, entry, async_add_entities):
             if create_controllers:
                 entities.append(UponorRoomAvg(unique_id, state_proxy, controller))
                 entities.append(UponorControllerStatusSensor(unique_id, state_proxy, controller))
+            if not installer_settings:
+                entities.append(UponorControllerRelayConfigSensor(unique_id, state_proxy, controller))
+
+    if "C1" in seen_controllers and not installer_settings:
+        entities.append(UponorPumpManagementSensor(unique_id, state_proxy))
 
     for thermostat in hass.data[unique_id]["thermostats"]:
         room_name = state_proxy.get_room_name(thermostat)
@@ -182,3 +188,28 @@ class UponorRoomAvg(UponorControllerEntity, SensorEntity):
     @property
     def native_value(self):
         return self._state_proxy.get_controller_avgtemp(self._controller)
+
+
+class UponorControllerRelayConfigSensor(UponorControllerEntity, SensorEntity):
+    _attr_translation_key = "relay_config"
+
+    def __init__(self, unique_instance_id, state_proxy, controller):
+        super().__init__(unique_instance_id, state_proxy, controller)
+        self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_controller_id(controller)}_relay_config"
+
+    @property
+    def native_value(self):
+        return self._state_proxy.get_controller_relayconfig(self._controller)
+
+
+class UponorPumpManagementSensor(UponorControllerEntity, SensorEntity):
+    _attr_translation_key = "pump_management"
+
+    def __init__(self, unique_instance_id, state_proxy):
+        super().__init__(unique_instance_id, state_proxy, "C1")
+        self._attr_unique_id = f"{unique_instance_id}_pump_management"
+
+    @property
+    def native_value(self):
+        raw = self._state_proxy.get_pump_management()
+        return {"0": "individual", "1": "common"}.get(raw)
