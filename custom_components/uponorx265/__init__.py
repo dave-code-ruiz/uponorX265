@@ -45,14 +45,16 @@ from .const import (
     STATUS_ERROR_MAINCONTROLER_FAIL,
     TOO_HIGH_TEMP_LIMIT,
     DEFAULT_TEMP,
-    DEVICE_MANUFACTURER
+    DEVICE_MANUFACTURER,
+    DIAL_THERMOSTAT_MODELS
 )
 from .jnap import UponorJnap
 from .helper import get_unique_id_from_config_entry, _get_mac_with_arp_refresh 
 
 from homeassistant.components.climate.const import (
     PRESET_AWAY,
-    PRESET_COMFORT
+    PRESET_COMFORT,
+    PRESET_ECO
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -111,19 +113,30 @@ def _resolve_target_proxies(hass: HomeAssistant, call) -> list:
 
 
 def _migrate_entity_unique_ids(hass: HomeAssistant, config_entry: ConfigEntry, unique_instance_id: str) -> None:
-    
+    """Migrate entity registry entries to the current unique_id formats.
+
+    Two historical format changes are handled, composing so that an upgrade
+    from any older version lands on the current format in one pass:
+    - pre-1.1.2: bare ids (no config-entry prefix) gain the prefix
+    - pre-1.1.5: climate ids (no '_climate' suffix) gain the suffix
+    """
     ent_reg = entity_registry.async_get(hass)
     entries = entity_registry.async_entries_for_config_entry(ent_reg, config_entry.entry_id)
     prefix = f"{unique_instance_id}_"
 
     for entry in entries:
-        if entry.unique_id.startswith(prefix):
+        new_unique_id = entry.unique_id
+        if not new_unique_id.startswith(prefix):
+            new_unique_id = f"{prefix}{new_unique_id}"
+        if entry.domain == "climate" and not new_unique_id.endswith("_climate"):
+            new_unique_id = f"{new_unique_id}_climate"
+
+        if new_unique_id == entry.unique_id:
             continue
 
-        new_unique_id = f"{prefix}{entry.unique_id}"
-
-        # Scenario 2: prefixed entity already exists (created by 1.1.2 as '_2').
-        # Remove the stale bare-id entry instead of failing.
+        # Scenario 2: an entity with the new unique_id already exists (created
+        # as a duplicate by a version that lacked this migration). Remove the
+        # stale old-id entry instead of failing.
         existing_entity_id = ent_reg.async_get_entity_id(entry.domain, DOMAIN, new_unique_id)
         if existing_entity_id is not None:
             _LOGGER.info(
@@ -145,6 +158,23 @@ def _migrate_entity_unique_ids(hass: HomeAssistant, config_entry: ConfigEntry, u
                 "Failed to migrate entity %s unique_id '%s': %s",
                 entry.entity_id, entry.unique_id, exc,
             )
+
+def _remove_unsupported_local_override_entities(hass: HomeAssistant, config_entry: ConfigEntry, unique_instance_id: str, state_proxy, thermostats) -> None:
+    """Remove local-override switches created for thermostats that do not support the feature."""
+    ent_reg = entity_registry.async_get(hass)
+    stale_unique_ids = {
+        f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_local_override"
+        for thermostat in thermostats
+        if not state_proxy.requires_local_override(thermostat)
+    }
+    for entry in entity_registry.async_entries_for_config_entry(ent_reg, config_entry.entry_id):
+        if entry.domain == "switch" and entry.unique_id in stale_unique_ids:
+            _LOGGER.info(
+                "Removing switch %s: thermostat does not support local override",
+                entry.entity_id,
+            )
+            ent_reg.async_remove(entry.entity_id)
+
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     # Sync options to data if they differ
@@ -169,10 +199,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 
     thermostats = state_proxy.get_cached_thermostats()
     if thermostats:
-        if config_entry.entry_id:
-            await state_proxy.async_update()
-        else:
-            hass.async_create_task(state_proxy.async_update())
+        hass.async_create_task(state_proxy.async_update())
     else:
         await state_proxy.async_update()
         thermostats = state_proxy.get_active_thermostats()
@@ -199,7 +226,8 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
             supports_response=SupportsResponse.ONLY,
         )
 
-    # Migrate entity unique_ids from pre-1.1.2 bare format to prefixed format.
+    # Migrate entity unique_ids from older formats (pre-1.1.2 bare ids,
+    # pre-1.1.5 climate ids without '_climate' suffix).
     # Must run before platform setup so HA matches existing registry entries
     # to the new unique_ids instead of creating duplicate entities.
     _migrate_entity_unique_ids(hass, config_entry, unique_id)
@@ -356,6 +384,7 @@ class UponorStateProxy:
         self._reload_in_progress = False
         self._last_reload_attempt = None
         self._gateway_id = None
+        self._stale_override_switches_cleaned = False
         _LOGGER.debug(f"Configdata = {self._config_entry}")
     # Controlers config  
     def get_active_controllers(self):
@@ -390,7 +419,7 @@ class UponorStateProxy:
             hwid = int(self._data[var])
             controller_id = self.get_controller_id(controller)
             if controller_id is None:
-                return hwid
+                return None
             sn = controller_id[:4]
             prodk = sn[:3]
             mod = sn[-1:]
@@ -403,8 +432,10 @@ class UponorStateProxy:
 #                   return("X-265")
 # Smatrix Base PRO
 #                   return("X-147")
-# Modbus RTU model  return("X-147") 
-            return hwid
+# Modbus RTU model  return("X-147")
+            # The raw hardware type is a device class, not a model id -
+            # report no model rather than a misleading number.
+            return None
 
     def get_controller_name(self, controller):
         configured_name = self._config_entry.data.get(controller.lower())
@@ -413,7 +444,12 @@ class UponorStateProxy:
         var = 'cust_' + controller.replace('C', 'Controller') + '_Name'
         if var in self._data:
             return self._data[var]
-        return self._storage_metadata.get("controller_names", {}).get(controller)
+        cached_name = self._storage_metadata.get("controller_names", {}).get(controller)
+        if cached_name:
+            return cached_name
+        # Fall back to a generated name ("<gateway name> Controller 1") so
+        # controller devices are never registered unnamed.
+        return f"{self.get_integration_name()} {controller.replace('C', 'Controller ')}"
 
     def get_integration_name(self) -> str:
         """Return the user-configured name for this integration instance (gateway)."""
@@ -635,6 +671,14 @@ class UponorStateProxy:
                     if (room_name := self._get_room_name_from_data(thermostat))
                 },
             },
+            "models": {
+                **self._storage_metadata.get("models", {}),
+                **{
+                    thermostat: model
+                    for thermostat in thermostats
+                    if (model := self._detect_thermostat_model(thermostat))
+                },
+            },
             "humidity": list(dict.fromkeys(
                 [thermostat for thermostat in thermostats if thermostat + '_rh' in self._data and int(self._data[thermostat + '_rh']) != 0]
                 + self._storage_metadata.get("humidity", [])
@@ -688,19 +732,28 @@ class UponorStateProxy:
         return thermostat
 
     def get_thermostat_model(self, thermostat):
+        model = self._detect_thermostat_model(thermostat)
+        if model is not None:
+            return model
+        # Fall back to the cached detection so the model (and the gating that
+        # depends on it) is available before the first live update.
+        return self._storage_metadata.get("models", {}).get(thermostat)
+
+    def _detect_thermostat_model(self, thermostat):
         var = thermostat + '_thermostat_type'
-        if var in self._data:
-            hwid = int(self._data[var])
-            sn = self.get_thermostat_id(thermostat)[:4]
-            prodk = sn[:3]
-            mod = sn[-1:]
-      
-            if prodk=="269":
-                if mod=="1":
-                    return ('T-144')
-                if mod=="2":
-                    return ('T-145')
-            _LOGGER.debug(f"id {hwid} s/n start {sn} rh_c {self.has_humidity_control(thermostat)} rh_s {self.has_humidity_sensor(thermostat)} pd {self.is_public_device(thermostat)} hft {self.has_floor_temperature(thermostat)} Sensor only {self.is_sensor_only(thermostat)}")
+        if var not in self._data:
+            return None
+        hwid = int(self._data[var])
+        sn = self.get_thermostat_id(thermostat)[:4]
+        prodk = sn[:3]
+        mod = sn[-1:]
+
+        if prodk=="269":
+            if mod=="1":
+                return ('T-144')
+            if mod=="2":
+                return ('T-145')
+        _LOGGER.debug(f"id {hwid} s/n start {sn} rh_c {self.has_humidity_control(thermostat)} rh_s {self.has_humidity_sensor(thermostat)} pd {self.is_public_device(thermostat)} hft {self.has_floor_temperature(thermostat)} Sensor only {self.is_sensor_only(thermostat)}")
 # Smartix Base Pulse                   
 #                   return("T-141") #No temp adjustment/RH
 #                   return("T-143") #No temp adjustment/External temp/Tamper Alarm
@@ -717,7 +770,9 @@ class UponorStateProxy:
 #                   return("T-168") #Digital display/External temp/RH/TimeDate
 #                   return("T-169") #Digital display/External temp/RH
 #                    return("T-247")
-        return hwid
+        # The raw hardware type is a device class, not a model id -
+        # report no model rather than a misleading number.
+        return None
 
     def get_model(self):
         return "R-208"
@@ -822,13 +877,18 @@ class UponorStateProxy:
         if var_cool_setback in self._data and self.is_cool_enabled():
             cool_setback = int(self._data[var_cool_setback]) * -1
 
-        eco_setback = 0
-        var_eco_setback = thermostat + '_eco_offset'
-        mode = -1 if self.is_cool_enabled() else 1
-        if var_eco_setback in self._data and (self.is_eco(thermostat) or self.is_away()):
-            eco_setback = int(self._data[var_eco_setback]) * mode
+        return cool_setback + self._get_active_eco_setback(thermostat)
 
-        return cool_setback + eco_setback
+    def _get_active_eco_setback(self, thermostat):
+        var = thermostat + '_eco_offset'
+        if var not in self._data or not self.is_setback_active(thermostat):
+            return 0
+
+        mode = -1 if self.is_cool_enabled() else 1
+        return int(self._data[var]) * mode
+
+    def requires_local_override(self, thermostat):
+        return self.get_thermostat_model(thermostat) in DIAL_THERMOSTAT_MODELS
 
     def get_local_override(self, thermostat):
         var = thermostat + '_pub_setpoint_override'
@@ -921,7 +981,7 @@ class UponorStateProxy:
         await self.async_set_setpoint(thermostat, off_temp)
 
     async def async_set_preset_mode(self, preset_mode):
-        if preset_mode == PRESET_AWAY:
+        if preset_mode in (PRESET_AWAY, PRESET_ECO):
             await self.async_set_away(True)
         elif preset_mode == PRESET_COMFORT:
             await self.async_set_away(False)
@@ -965,6 +1025,9 @@ class UponorStateProxy:
         return (var in self._data and self._data[var] == "1") or (
                     var_temp in self._data and self._data[var_temp] == "1")
 
+    def is_setback_active(self, thermostat):
+        return self.is_away() or self.is_eco(thermostat)
+
     def get_eco_setback(self, thermostat):
         var = thermostat + '_eco_offset'
         if var in self._data:
@@ -992,6 +1055,16 @@ class UponorStateProxy:
                 self._last_successful_update = dt_util.now()
                 self._unavailable_since = None
                 await self._async_persist_discovery_metadata()
+
+                # Runs here rather than at setup because model detection is
+                # only authoritative with live data; on a cache-based startup
+                # it would treat dial thermostats as unsupported.
+                if not self._stale_override_switches_cleaned:
+                    self._stale_override_switches_cleaned = True
+                    _remove_unsupported_local_override_entities(
+                        self._hass, self._config_entry, self._unique_id,
+                        self, self.get_active_thermostats(),
+                    )
 
                 self._hass.async_create_task(self.call_state_update())
                 return
@@ -1024,6 +1097,37 @@ class UponorStateProxy:
         _LOGGER.debug("Called set variable: name: %s, value: %s", var_name, var_value)
         await self._client.send_data({var_name: var_value})
         self._data[var_name] = var_value
+        self._hass.async_create_task(self.call_state_update())
+
+    async def async_set_target_temperature(self, thermostat, temp):
+        if self.is_setback_active(thermostat):
+            await self.async_set_setback_target(thermostat, temp)
+            return
+
+        await self.async_set_setpoint(thermostat, temp)
+
+    async def async_set_setback_target(self, thermostat, temp):
+        current_target = self.get_setpoint(thermostat)
+        if current_target is None:
+            await self.async_set_setpoint(thermostat, temp)
+            return
+
+        active_eco_setback = self._get_active_eco_setback(thermostat)
+        comfort_target = current_target + active_eco_setback / 18
+        mode = -1 if self.is_cool_enabled() else 1
+        offset = round((comfort_target - temp) * 18 / mode)
+
+        if offset < 0:
+            _LOGGER.warning(
+                "Requested setback target %.1f for %s would require a negative eco offset; using 0 instead",
+                temp,
+                thermostat,
+            )
+            offset = 0
+
+        var = thermostat + '_eco_offset'
+        await self._client.send_data({var: offset})
+        self._data[var] = offset
         self._hass.async_create_task(self.call_state_update())
 
     async def async_set_setpoint(self, thermostat, temp):

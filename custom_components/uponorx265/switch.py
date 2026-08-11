@@ -27,7 +27,8 @@ async def async_setup_entry(hass, entry, async_add_entities):
     installer_settings = entry.data.get(CONF_INSTALLER_SETTINGS, False)
 
     for thermostat in hass.data[unique_id]["thermostats"]:
-        entities.append(LocalOverride(unique_id, state_proxy, thermostat))
+        if state_proxy.requires_local_override(thermostat):
+            entities.append(LocalOverride(unique_id, state_proxy, thermostat))
 
         if entry.data.get(CONF_SWITCH_SENSOR_AVG, False):
             entities.append(ClimatControlInAvg(unique_id, state_proxy, thermostat))
