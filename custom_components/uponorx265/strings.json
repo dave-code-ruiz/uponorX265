@@ -239,6 +239,13 @@
       },
       "pump_relay": {
         "name": "Pump relay"
+      },
+      "boiler_demand": {
+        "name": "Boiler request",
+        "state": {
+          "on": "Heat",
+          "off": "Normal"
+        }
       }
     }
   },

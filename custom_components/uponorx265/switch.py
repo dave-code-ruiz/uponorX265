@@ -122,6 +122,7 @@ class LocalOverride(UponorThermostatEntity, SwitchEntity):
 
 class BypassEnableSwitch(UponorControllerEntity, SwitchEntity):
     _attr_icon = "mdi:valve"
+    _attr_is_on = False
 
     def __init__(self, unique_instance_id, state_proxy, thermostat):
         controller = thermostat.split('_')[0]

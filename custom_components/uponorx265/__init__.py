@@ -524,6 +524,10 @@ class UponorStateProxy:
         var = controller + '_stat_pump_relay'
         return self._data.get(var) == "1"
 
+    def get_boiler_demand(self, controller):
+        var = controller + '_stat_demand'
+        return self._data.get(var) == "1"
+
     def get_inavg(self, thermostat):
         var = thermostat.replace('_T', '_channel_') + '_ave_temp'
         return self._data.get(var) == "1"

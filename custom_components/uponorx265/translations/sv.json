@@ -239,6 +239,13 @@
       },
       "pump_relay": {
         "name": "Pumprelä"
+      },
+      "boiler_demand": {
+        "name": "Värmebegäran",
+        "state": {
+          "on": "Värme",
+          "off": "Normal"
+        }
       }
     }
   },

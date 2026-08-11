@@ -58,7 +58,7 @@ When disabled, these settings are visible as read-only sensors instead.
 | Setting | Installer mode off | Installer mode on |
 |---|---|---|
 | Controller relays | Read-only sensor | Writable select |
-| Pump control | Read-only sensor | Writable select |
+| Pump control | Read-only sensor (C1 only) | Writable select (C1 only) |
 | Bypass (per room) | Read-only binary sensor | Writable switch (max 2 active per controller) |
 
 ## Entities
@@ -130,8 +130,9 @@ the setpoint to the minimum (heating mode) or maximum (cooling mode) configured 
 | Entity | Device | Created when |
 |---|---|---|
 | Valve | Thermostat | Valve sensor enabled in setup (default: off) — shows whether the actuator is open |
-| Pump relay | Controller | Controller relay/IO sensors enabled in setup (default: off) |
-| Bypass (per room) | Controller | Installer mode off |
+| Pump relay | Controller | Controller relay/IO sensors enabled in setup (default: off). Hidden for C2+ when pump control is set to Common |
+| Boiler request | Controller | Controller relay/IO sensors enabled in setup (default: off) — shows Heat / Normal |
+| Bypass (per room) | Controller | Installer mode off — read-only view of bypass state per room |
 
 ### Translations
 
