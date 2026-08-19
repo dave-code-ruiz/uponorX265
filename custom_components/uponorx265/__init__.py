@@ -159,6 +159,61 @@ def _migrate_entity_unique_ids(hass: HomeAssistant, config_entry: ConfigEntry, u
                 entry.entity_id, entry.unique_id, exc,
             )
 
+def _migrate_gateway_device_id(hass: HomeAssistant, unique_instance_id: str, host: str, new_gateway_id: str) -> None:
+    """Reconcile the gateway device's identifier with a newly-resolved MAC.
+
+    Historical identifier formats for the gateway device, in order:
+    - host-based (host with dots stripped) — used before MAC resolution was wired up
+    - lowercase MAC (no separators) — used before the id was uppercased
+    Any of these may still be registered as the gateway device's identifier.
+    Once resolution lands on the current format, entities switch to it and
+    Home Assistant would otherwise create a *new* device for them, leaving
+    the old one orphaned (no entities). This merges them: rename in place if
+    only an old-format device exists, or drop the orphaned old one (after
+    copying over any user customization) if a new device already exists from
+    a prior restart.
+    """
+    if new_gateway_id is None:
+        return
+
+    dev_reg = device_registry.async_get(hass)
+    new_identifier = (unique_instance_id, new_gateway_id)
+    new_device = dev_reg.async_get_device(identifiers={new_identifier})
+
+    old_candidate_ids = {host.replace('.', ''), new_gateway_id.lower()} - {new_gateway_id}
+    for old_gateway_id in old_candidate_ids:
+        old_identifier = (unique_instance_id, old_gateway_id)
+        old_device = dev_reg.async_get_device(identifiers={old_identifier})
+        if old_device is None:
+            continue
+
+        if new_device is None:
+            # First time resolving to this format: rename the existing device in place.
+            updated_identifiers = {
+                new_identifier if i == old_identifier else i for i in old_device.identifiers
+            }
+            dev_reg.async_update_device(old_device.id, new_identifiers=updated_identifiers)
+            _LOGGER.info(
+                "Migrated gateway device identifier for %s: '%s' -> '%s'",
+                unique_instance_id, old_gateway_id, new_gateway_id,
+            )
+            new_device = dev_reg.async_get_device(identifiers={new_identifier})
+            continue
+
+        # A new device already exists (created by a prior restart before this
+        # migration existed). Carry over any user customization, then drop the
+        # now-empty old device.
+        if old_device.area_id and not new_device.area_id:
+            dev_reg.async_update_device(new_device.id, area_id=old_device.area_id)
+        if old_device.name_by_user and not new_device.name_by_user:
+            dev_reg.async_update_device(new_device.id, name_by_user=old_device.name_by_user)
+        dev_reg.async_remove_device(old_device.id)
+        _LOGGER.info(
+            "Removed orphaned gateway device '%s' (%s) for %s, superseded by '%s'",
+            old_gateway_id, old_device.id, unique_instance_id, new_gateway_id,
+        )
+
+
 def _remove_unsupported_local_override_entities(hass: HomeAssistant, config_entry: ConfigEntry, unique_instance_id: str, state_proxy, thermostats) -> None:
     """Remove local-override switches created for thermostats that do not support the feature."""
     ent_reg = entity_registry.async_get(hass)
@@ -203,6 +258,11 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     else:
         await state_proxy.async_update()
         thermostats = state_proxy.get_active_thermostats()
+
+    # Must run before platform setup: device_info reads get_gateway_id(),
+    # which otherwise falls back to a host-based id for the entire session.
+    resolved_gateway_id = await state_proxy.async_resolve_gateway_id()
+    _migrate_gateway_device_id(hass, unique_id, host, resolved_gateway_id)
 
     hass.data[unique_id] = {
         "state_proxy": state_proxy,
@@ -466,14 +526,15 @@ class UponorStateProxy:
         """Resolve gateway MAC via ARP (with UDP socket to prime ARP cache) and cache it."""
         if self._gateway_id is None:
             mac = get_mac_address(ip=self._host)
+            _LOGGER.debug("Direct get_mac_address(%s) (no ARP priming) returned: %s", self._host, mac)
             if mac is not None:
-                self._gateway_id = mac.replace(':', '')
+                self._gateway_id = mac.replace(':', '').upper()
             else:
                 mac = await self._hass.async_add_executor_job(
                     _get_mac_with_arp_refresh, self._host
                 )
                 if mac is not None:
-                    self._gateway_id = mac.replace(':', '')
+                    self._gateway_id = mac.replace(':', '').upper()
                 else:
                     _LOGGER.warning(
                         "Could not resolve MAC address for %s, using host as fallback",
@@ -747,12 +808,27 @@ class UponorStateProxy:
         sn = self.get_thermostat_id(thermostat)[:4]
         prodk = sn[:3]
         mod = sn[-1:]
-
-        if prodk=="269":
-            if mod=="1":
-                return ('T-144')
-            if mod=="2":
-                return ('T-145')
+        
+        if hwid==0:
+            # T-144 and T-145 report the same hardware id, but looking at a
+            # number of T-144/T-145 units we had on hand, the serial number
+            # prefix appears usable for telling them apart.
+            # Every other hwid==0 unit defaults to T-145 — Uponor's own app
+            # seems to do the same when it can't tell either.
+            if prodk=="269":
+                if mod=="1":
+                    return ('T-144')
+                if mod=="2":
+                    return ('T-145')
+            if prodk=="268":
+                # sn 2688 — kept as a marker in case a pattern emerges once
+                # we have data from more thermostats; currently redundant
+                # with the T-145 fallback below.
+                return('T-145')
+            return('T-145')
+        if hwid==2:
+            # sn 2856
+            return('T-146')
         _LOGGER.debug(f"id {hwid} s/n start {sn} rh_c {self.has_humidity_control(thermostat)} rh_s {self.has_humidity_sensor(thermostat)} pd {self.is_public_device(thermostat)} hft {self.has_floor_temperature(thermostat)} Sensor only {self.is_sensor_only(thermostat)}")
 # Smartix Base Pulse                   
 #                   return("T-141") #No temp adjustment/RH
