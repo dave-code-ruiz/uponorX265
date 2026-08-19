@@ -23,6 +23,11 @@ It has been tested with the X-265 and X-245 controllers. Up to 4 controllers wit
 
 4. Go to **Settings → Devices & Services → Add Integration → UponorX265** and complete the setup wizard.
 
+## Model data
+
+If the model of your thermostat/controller does not match or is missing, please run `uponorx265.dump_hardware_info` and upload the output in a support ticket.
+Don't forget to include information about which thermostat/controller model you have.
+
 ## Setup wizard
 
 The setup wizard has four steps:
@@ -30,9 +35,12 @@ The setup wizard has four steps:
 1. **Connection** — enter the IP address and a name for this gateway.
 2. **Controllers** — optionally rename each detected controller. A checkbox lets you choose whether
    controller devices and sensors should be created in HA.
-3. **Sensors** — choose which optional sensors to create per thermostat:
+3. **Sensors** — choose which optional sensors and features to create:
    - **Current temperature sensor** (on by default)
    - **Valve binary sensor** (off by default)
+   - **Average inclusion switch** (off by default) — per-thermostat toggle for controller average temperature
+   - **Controller relay/IO sensors** (off by default) — pump relay status per controller
+   - **Installer mode** (off by default) — see below
 4. **Rooms** — optionally rename each detected thermostat/room.
 
 All settings can be changed later via **Settings → Devices & Services → UponorX265 → Configure**.
@@ -41,6 +49,17 @@ All settings can be changed later via **Settings → Devices & Services → Upon
 
 Multiple R-208 gateways can be added as separate integration instances. Each instance is
 fully independent with its own devices, entities, and cached data.
+
+## Installer mode
+
+Enabling **Installer mode** in setup unlocks writable entities for advanced system configuration.
+When disabled, these settings are visible as read-only sensors instead.
+
+| Setting | Installer mode off | Installer mode on |
+|---|---|---|
+| Controller relays | Read-only sensor | Writable select |
+| Pump control | Read-only sensor (C1 only) | Writable select (C1 only) |
+| Bypass (per room) | Read-only binary sensor | Writable switch (max 2 active per controller) |
 
 ## Entities
 
@@ -76,30 +95,44 @@ the setpoint to the minimum (heating mode) or maximum (cooling mode) configured 
 
 ### Switches
 
-| Entity | Description |
-|---|---|
-| Away | Activates away/ECO mode for all thermostats |
-| Cooling mode | Switches the entire system between heating and cooling mode (only shown if cooling is available) |
-| HA controlled (per room) | Per-thermostat toggle for HA temperature control (mirrors the HA controlled preset) |
-| Included in average (per room) | Toggles whether the thermostat contributes to the controller's average room temperature (enabled in setup, default: off) |
+| Entity | Device | Description |
+|---|---|---|
+| Away | Gateway | Activates away/ECO mode for all thermostats |
+| Automatic firmware update | Gateway | Enables automatic firmware updates on the R-208 module |
+| Cooling mode | Gateway | Switches the entire system between heating and cooling mode (only shown if cooling is available) |
+| HA controlled (per room) | Thermostat | Per-thermostat toggle for HA temperature control (mirrors the HA controlled preset) |
+| Included in average (per room) | Thermostat | Toggles whether the thermostat contributes to the controller's average room temperature (enabled in setup, default: off) |
+| Bypass (per room) | Controller | Enables bypass for a room — max 2 active per controller (installer mode only) |
+
+### Selects
+
+| Entity | Device | Description |
+|---|---|---|
+| Controller relays | Controller | Relay configuration — Not in use / Pump+Heater / Pump+Eco+Comfort / Not configured (installer mode only) |
+| Pump control | Controller (C1) | Individual or common pump control (installer mode only) |
 
 ### Sensors
 
-| Entity | Created when |
-|---|---|
-| Gateway status | Always — shows Online/Offline for the R-208 module |
-| Status (controller) | Controller entities enabled in setup |
-| Average room temperature | Controller entities enabled in setup |
-| Status (thermostat) | Always — shows alarm/error codes for each thermostat |
-| Room temperature | Temperature sensor enabled in setup (default: on) |
-| Floor temperature | Thermostat has an external floor probe |
-| Humidity | Thermostat has a humidity sensor |
+| Entity | Device | Created when |
+|---|---|---|
+| Gateway status | Gateway | Always — shows Online/Offline for the R-208 module |
+| Status (controller) | Controller | Controller entities enabled in setup |
+| Average room temperature | Controller | Controller entities enabled in setup |
+| Controller relays | Controller | Installer mode off |
+| Pump control | Controller (C1) | Installer mode off |
+| Status (thermostat) | Thermostat | Always — shows alarm/error codes for each thermostat |
+| Room temperature | Thermostat | Temperature sensor enabled in setup (default: on) |
+| Floor temperature | Thermostat | Thermostat has an external floor probe |
+| Humidity | Thermostat | Thermostat has a humidity sensor |
 
 ### Binary sensors
 
-| Entity | Created when |
-|---|---|
-| Valve | Valve sensor enabled in setup (default: off) — shows whether the actuator is open |
+| Entity | Device | Created when |
+|---|---|---|
+| Valve | Thermostat | Valve sensor enabled in setup (default: off) — shows whether the actuator is open |
+| Pump relay | Controller | Controller relay/IO sensors enabled in setup (default: off). Hidden for C2+ when pump control is set to Common |
+| Boiler request | Controller | Controller relay/IO sensors enabled in setup (default: off) — shows Heat / Normal |
+| Bypass (per room) | Controller | Installer mode off — read-only view of bypass state per room |
 
 ### Translations
 
@@ -137,11 +170,7 @@ gateways:
         hardware_type_raw: "0"
         detected_model: X-245
         sw_version: "1.22"
-      - controller: C2
-        sn_start: "4195"
-        hardware_type_raw: "0"
-        detected_model: X-245
-        sw_version: "1.22"
+        relays_config: "3"
     thermostats:
       - thermostat: C1_T1
         sn_start: "2692"
@@ -153,6 +182,15 @@ gateways:
         is_public_device: 0
         is_sensor_only: 0
 ```
+
+### `uponorx265.dump_raw_data`
+
+Returns the complete raw data dictionary received from the gateway as a service response,
+shown directly in **Developer Tools → Services**.
+Useful for inspecting all available variables and their current values — for example when
+trying to map an unknown variable or verify that a write has taken effect.
+
+If more than one gateway is configured the response is grouped by gateway unique ID.
 
 ## Limitations
 

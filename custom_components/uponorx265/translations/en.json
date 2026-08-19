@@ -27,7 +27,9 @@
         "data": {
           "sensor_temperature": "Create room temperature sensor",
           "binary_sensor_valve": "Create valve binary sensor",
-          "switch_sensor_avg": "Create average inclusion switch"
+          "switch_sensor_avg": "Create average inclusion switch",
+          "controller_io": "Create controller relay/IO sensors",
+          "installer_settings": "Installer mode (relays, bypass and pump control)"
         }
       },
       "rooms": {
@@ -108,7 +110,8 @@
         "data": {
           "sensor_temperature": "Create room temperature sensor",
           "binary_sensor_valve": "Create valve binary sensor",
-          "switch_sensor_avg": "Create average inclusion switch"
+          "switch_sensor_avg": "Create average inclusion switch",
+          "controller_io": "Create controller relay/IO sensors"
         }
       }
     }
@@ -174,6 +177,22 @@
       },
       "room_avg_temp": {
         "name": "Average room temperature"
+      },
+      "relay_config": {
+        "name": "Controller relays",
+        "state": {
+          "not_in_use": "Not in use",
+          "pump_heater": "Pump / Heater",
+          "pump_eco_comfort": "Pump / Eco / Comfort",
+          "not_configured": "Not configured"
+        }
+      },
+      "pump_management": {
+        "name": "Pump control",
+        "state": {
+          "individual": "Individual",
+          "common": "Common"
+        }
       }
     },
     "switch": {
@@ -188,11 +207,45 @@
       },
       "avg_included": {
         "name": "Included in average"
+      },
+      "bypass_enable": {
+        "name": "Bypass"
+      },
+      "auto_update": {
+        "name": "Automatic firmware update"
+      }
+    },
+    "select": {
+      "pump_management": {
+        "name": "Pump control",
+        "state": {
+          "individual": "Individual",
+          "common": "Common"
+        }
+      },
+      "relay_config": {
+        "name": "Controller relays",
+        "state": {
+          "not_in_use": "Not in use",
+          "pump_heater": "Pump / Heater",
+          "pump_eco_comfort": "Pump / Eco / Comfort",
+          "not_configured": "Not configured"
+        }
       }
     },
     "binary_sensor": {
       "valve": {
         "name": "Valve"
+      },
+      "pump_relay": {
+        "name": "Pump relay"
+      },
+      "boiler_demand": {
+        "name": "Boiler request",
+        "state": {
+          "on": "Heat",
+          "off": "Normal"
+        }
       }
     }
   },
@@ -200,6 +253,10 @@
     "dump_hardware_info": {
       "name": "Dump Hardware Info",
       "description": "Returns raw hardware IDs and capability flags for every thermostat and controller. The response is shown directly in Developer Tools → Services. Useful for identifying unknown device models."
+    },
+    "dump_raw_data": {
+      "name": "Dump Raw Data",
+      "description": "Returns the complete raw data dictionary received from the gateway. Useful for inspecting all available variables and their current values."
     },
     "set_variable": {
       "name": "Set Variable",

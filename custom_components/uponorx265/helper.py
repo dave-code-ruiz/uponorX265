@@ -4,6 +4,7 @@ from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 import socket
+import time
 from getmac import get_mac_address
 
 from .const import (
@@ -36,16 +37,53 @@ def generate_unique_id_from_user_input_conf_name(user_input):
 def get_unique_id_from_config_entry(config_entry: ConfigEntry):
     return config_entry.unique_id
 
+def _get_mac_from_proc_arp(host: str):
+    """Parse /proc/net/arp directly.
+
+    Fallback for containerized HA installs (HA OS/Supervised) where the
+    'arp'/'ip neighbor' binaries getmac relies on aren't present in the
+    container image, even though the kernel ARP table itself is reachable.
+    """
+    try:
+        with open('/proc/net/arp') as f:
+            lines = f.readlines()
+    except Exception as exc:
+        _LOGGER.debug("Could not read /proc/net/arp: %s", exc)
+        return None
+
+    _LOGGER.debug("/proc/net/arp contents while looking for %s: %s", host, lines)
+    for line in lines[1:]:  # skip header
+        fields = line.split()
+        if len(fields) >= 4 and fields[0] == host and fields[3] != '00:00:00:00:00:00':
+            return fields[3]
+    return None
+
+
 def _get_mac_with_arp_refresh(host: str):
-    """Prime the ARP cache with a UDP socket and then read the MAC address."""
+    """Prime the ARP cache by actually sending a packet, then read the MAC address.
+
+    connect() alone on a UDP socket does not guarantee a packet leaves the
+    interface, so the ARP cache may never get populated; send() forces it.
+    """
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(1)
         sock.connect((host, 80))
+        sock.send(b'\x00')
         sock.close()
-    except Exception:
-        pass
-    return get_mac_address(ip=host, network_request=True)
+        time.sleep(0.2)
+        _LOGGER.debug("ARP-priming socket to %s sent successfully", host)
+    except Exception as exc:
+        _LOGGER.debug("ARP-priming socket to %s failed: %s", host, exc)
+
+    mac = get_mac_address(ip=host, network_request=True)
+    _LOGGER.debug("get_mac_address(%s, network_request=True) returned: %s", host, mac)
+    if mac is not None:
+        return mac
+
+    mac = _get_mac_from_proc_arp(host)
+    _LOGGER.debug("_get_mac_from_proc_arp(%s) returned: %s", host, mac)
+    return mac
     
 class UponorThermostatEntity(Entity):
     """Base class for entity connected to termostat."""
