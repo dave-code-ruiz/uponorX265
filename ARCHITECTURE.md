@@ -1,174 +1,174 @@
-# Systembeskrivning – uponorX265
+# System Description – uponorX265
 
-Home Assistant custom integration som ansluter till en **Uponor Smatrix Pulse**-gateway via lokalt nätverk och exponerar värme-/kylsystemets termostater, kontroller och gateway som HA-entiteter. All kommunikation sker lokalt (`iot_class: local_polling`) — inget moln involverat.
+Home Assistant custom integration that connects to an **Uponor Smatrix Pulse** gateway over the local network and exposes the heating/cooling system's thermostats, controllers, and gateway as HA entities. All communication happens locally (`iot_class: local_polling`) — no cloud involved.
 
-## Innehåll
+## Contents
 
-1. [Arkitektur](#arkitektur)
-2. [Funktionalitet](#funktionalitet)
-3. [Officiella Pulse-appen (referens)](#officiella-pulse-appen-referens)
-4. [Rådata (JNAP-variabler)](#rådata-jnap-variabler)
-5. [Hårdvara som stöds](#hårdvara-som-stöds)
+1. [Architecture](#architecture)
+2. [Functionality](#functionality)
+3. [Official Pulse app (reference)](#official-pulse-app-reference)
+4. [Raw data (JNAP variables)](#raw-data-jnap-variables)
+5. [Supported hardware](#supported-hardware)
 
 ---
 
-## Arkitektur
+## Architecture
 
-### Kommunikationslager — [jnap.py](custom_components/uponorx265/jnap.py)
-`UponorJnap` pratar JNAP (JSON Network API) mot gatewayens `/JNAP/`-endpoint via `aiohttp`. Två operationer: `get_data()` (hämtar alla variabler som platt dict `waspVarName → waspVarValue`) och `send_data()` (skriver variabler). Inbyggd retry-logik (2 försök, 1s delay) och gemensam timeout; nätverksfel omvandlas till `HomeAssistantError`.
+### Communication layer — [jnap.py](custom_components/uponorx265/jnap.py)
+`UponorJnap` speaks JNAP (JSON Network API) to the gateway's `/JNAP/` endpoint via `aiohttp`. Two operations: `get_data()` (fetches all variables as a flat dict `waspVarName → waspVarValue`) and `send_data()` (writes variables). Built-in retry logic (2 attempts, 1s delay) and a shared timeout; network errors are converted to `HomeAssistantError`.
 
-### Tillståndslager — [__init__.py](custom_components/uponorx265/__init__.py)
-`UponorStateProxy` är den centrala klassen: håller rå-datat (`_data`) i minnet, pollar gatewayen på `SCAN_INTERVAL` (30s), och exponerar typade getters/setters (`get_setpoint`, `async_set_target_temperature`, `get_bypass_enable`, osv.) som platform-filerna bygger entiteter från. Vid varje uppdatering skickas `SIGNAL_UPONOR_STATE_UPDATE` via HA:s dispatcher så alla entiteter uppdaterar sig samtidigt. Data cachas även i `Store` (per config entry) för snabb återstart. Modulen registrerar även integrationens tjänster (`set_variable`, `dump_hardware_info`, `dump_raw_data`).
+### State layer — [__init__.py](custom_components/uponorx265/__init__.py)
+`UponorStateProxy` is the central class: keeps the raw data (`_data`) in memory, polls the gateway on `SCAN_INTERVAL` (30s), and exposes typed getters/setters (`get_setpoint`, `async_set_target_temperature`, `get_bypass_enable`, etc.) that the platform files build entities from. On every update, `SIGNAL_UPONOR_STATE_UPDATE` is sent via HA's dispatcher so all entities update at once. Data is also cached in `Store` (per config entry) for fast restarts. The module also registers the integration's services (`set_variable`, `dump_hardware_info`, `dump_raw_data`).
 
-### Gateway-ID (MAC-uppslag) — [__init__.py](custom_components/uponorx265/__init__.py) / [helper.py](custom_components/uponorx265/helper.py)
-Gatewayens `device_info`-identifierare och serienummer baseras på dess MAC-adress när den kan slås upp, annars faller den tillbaka på ett host-baserat ID (IP-adressen utan punkter). `UponorStateProxy.async_resolve_gateway_id()` körs i `async_setup_entry` innan plattformarna byggs (eftersom `device_info` läser `get_gateway_id()`), och försöker i tur och ordning:
+### Gateway ID (MAC resolution) — [__init__.py](custom_components/uponorx265/__init__.py) / [helper.py](custom_components/uponorx265/helper.py)
+The gateway's `device_info` identifier and serial number are based on its MAC address when it can be resolved, otherwise it falls back to a host-based ID (the IP address with dots stripped). `UponorStateProxy.async_resolve_gateway_id()` runs in `async_setup_entry` before the platforms are set up (since `device_info` reads `get_gateway_id()`), and tries, in order:
 
-1. `get_mac_address(ip=host)` direkt — fungerar om OS:ets ARP-cache redan har en post.
-2. `_get_mac_with_arp_refresh()` i [helper.py](custom_components/uponorx265/helper.py) — primar ARP-cachen genom att faktiskt skicka data på en UDP-socket (inte bara `connect()`, som inte garanterat skickar något), försöker sedan `getmac` igen, och som sista utväg läser `/proc/net/arp` direkt (för HA-installationer i Docker där `arp`/`ip neighbor`-binärer kan saknas i containern).
-3. MAC-adressen versaliseras (`.upper()`) innan den används som ID.
+1. `get_mac_address(ip=host)` directly — works if the OS's ARP cache already has an entry.
+2. `_get_mac_with_arp_refresh()` in [helper.py](custom_components/uponorx265/helper.py) — primes the ARP cache by actually sending data over a UDP socket (not just `connect()`, which doesn't guarantee anything is sent), then tries `getmac` again, and as a last resort reads `/proc/net/arp` directly (for HA installs in Docker where the `arp`/`ip neighbor` binaries may be missing from the container).
+3. The MAC address is uppercased (`.upper()`) before being used as the ID.
 
-**Viktig begränsning:** ARP fungerar bara inom samma broadcast-domän/subnät. Om HA-värden och gatewayen ligger på olika subnät/VLAN kan MAC-adressen aldrig slås upp (kärnan får aldrig en ARP-post för den), och det faller permanent tillbaka på host-baserat ID — det är inte en bugg i koden, utan en nätverkstopologisk begränsning.
+**Important limitation:** ARP only works within the same broadcast domain/subnet. If the HA host and the gateway are on different subnets/VLANs, the MAC address can never be resolved (the kernel never gets an ARP entry for it), and it permanently falls back to the host-based ID — this is not a code bug, it's a network topology limitation.
 
-Eftersom gateway-ID:t kan ändra format över tid (host-baserat → lowercase-MAC → uppercase-MAC, i den ordningen integrationen har utvecklats), hanterar `_migrate_gateway_device_id()` övergången: hittar den gamla enhetsposten i device registry och byter namn på den identifierare in-place om ingen ny post finns, eller flyttar över area/anpassat namn och tar bort den gamla posten om en ny redan skapats av ett tidigare omstartsförsök. Detta körs vid varje uppstart och är idempotent.
+Since the gateway ID's format can change over time (host-based → lowercase MAC → uppercase MAC, in the order the integration has evolved), `_migrate_gateway_device_id()` handles the transition: it finds the old device entry in the device registry and renames its identifier in place if no new entry exists, or carries over the area/custom name and removes the old entry if a new one was already created by a prior restart. This runs on every startup and is idempotent.
 
-### Entitetsbas — [helper.py](custom_components/uponorx265/helper.py)
-Tre basklasser bygger en devicehierarki i HA:
+### Entity base — [helper.py](custom_components/uponorx265/helper.py)
+Three base classes build a device hierarchy in HA:
 
-| Basklass | Device | `via_device` |
+| Base class | Device | `via_device` |
 |---|---|---|
-| `UponorGatewayEntity` | Gateway (rot) | — |
-| `UponorControllerEntity` | Reglercentral | Gateway |
-| `UponorThermostatEntity` | Termostat | Reglercentral |
+| `UponorGatewayEntity` | Gateway (root) | — |
+| `UponorControllerEntity` | Controller | Gateway |
+| `UponorThermostatEntity` | Thermostat | Controller |
 
-Alla ärver polling-fritt beteende (`should_poll = False`) och prenumererar på dispatcher-signalen för push-uppdatering.
+All inherit poll-free behavior (`should_poll = False`) and subscribe to the dispatcher signal for push updates.
 
-### Platform-filer
-En fil per HA-domän; var och en läser `hass.data[unique_id]` för state_proxy + listor över controllers/termostater och bygger entiteter:
+### Platform files
+One file per HA domain; each reads `hass.data[unique_id]` for the state_proxy + lists of controllers/thermostats and builds entities:
 
-| Fil | Innehåll |
+| File | Contents |
 |---|---|
-| [climate.py](custom_components/uponorx265/climate.py) | Huvudentiteten per termostat (temperatur, HVAC-läge, presets: Comfort/Eco/Away/HA controlled) |
-| [sensor.py](custom_components/uponorx265/sensor.py) | Temperatur, luftfuktighet, status, relakonfiguration, pumpstyrning m.m. |
-| [binary_sensor.py](custom_components/uponorx265/binary_sensor.py) | Ventil, pumprelä, panntillslag (boiler demand), bypass (read-only) |
-| [switch.py](custom_components/uponorx265/switch.py) | Away, Cool mode, HA-override (dial-termostater), auto-uppdatering, bypass (installatörsläge) |
-| [select.py](custom_components/uponorx265/select.py) | Relakonfiguration och pumpstyrning (skrivbara, installatörsläge) |
-| [config_flow.py](custom_components/uponorx265/config_flow.py) | Setup-wizard + options flow (host, controllernamn, rumsnamn, funktionsval) |
+| [climate.py](custom_components/uponorx265/climate.py) | The main entity per thermostat (temperature, HVAC mode, presets: Comfort/Eco/Away/HA controlled) |
+| [sensor.py](custom_components/uponorx265/sensor.py) | Temperature, humidity, status, relay configuration, pump management, etc. |
+| [binary_sensor.py](custom_components/uponorx265/binary_sensor.py) | Valve, pump relay, boiler demand, bypass (read-only) |
+| [switch.py](custom_components/uponorx265/switch.py) | Away, cool mode, HA override (dial thermostats), auto-update, bypass (installer mode) |
+| [select.py](custom_components/uponorx265/select.py) | Relay configuration and pump management (writable, installer mode) |
+| [config_flow.py](custom_components/uponorx265/config_flow.py) | Setup wizard + options flow (host, controller names, room names, feature toggles) |
 
 ---
 
-## Funktionalitet
+## Functionality
 
-**Grundfunktion:** varje fysisk termostat blir en `climate`-entitet med målsatt temperatur, aktuell temperatur/fukt, HVAC-läge (Heat/Cool + Off) och presets. Dial-termostater (T-144/T-145) kräver "HA controlled"-läge (local override) innan HA får styra börvärdet.
+**Core function:** every physical thermostat becomes a `climate` entity with a target temperature, current temperature/humidity, HVAC mode (Heat/Cool + Off), and presets. Dial thermostats (T-144/T-145) require "HA controlled" mode (local override) before HA can control the setpoint.
 
-**Two-tier funktionsmodell**, styrd av flaggor i config entry:
-- `controller_io` → skapar relä-/IO-sensorer per kontroller (pumprelä, panntillslag)
-- `installer_settings` ("Installatörsläge") → gör relakonfiguration, bypass och pumpstyrning **skrivbara** (select/switch); annars visas motsvarande data som **read-only sensorer**. Samma `unique_id`-format delas mellan skriv-/läsversionen så historik bevaras vid växling.
+**Two-tier feature model**, driven by flags in the config entry:
+- `controller_io` → creates relay/IO sensors per controller (pump relay, boiler demand)
+- `installer_settings` ("Installer mode") → makes relay configuration, bypass, and pump management **writable** (select/switch); otherwise the same data is shown as **read-only sensors**. The same `unique_id` format is shared between the writable/read-only version so history is preserved when toggling.
 
-**Affärsregler inbyggda i entiteterna:**
-- Max 2 aktiva bypass-zoner per kontroller (enforced i `BypassEnableSwitch.async_turn_on`, kastar `HomeAssistantError` annars)
-- Pumprelä döljs för C2–C4 när pumpstyrning är satt till "gemensam" (common)
-- Bypass default är av
+**Business rules built into the entities:**
+- Max 2 active bypass zones per controller (enforced in `BypassEnableSwitch.async_turn_on`, raises `HomeAssistantError` otherwise)
+- Pump relay is hidden for C2–C4 when pump management is set to "common"
+- Bypass defaults to off
 
-**Multi-gateway-stöd:** flera config entries kan köras parallellt; tjänster som `set_variable` och `dump_raw_data` matchar mot rätt gateway via `device_id`, eller mot den enda konfigurerade om bara en finns.
+**Multi-gateway support:** multiple config entries can run in parallel; services like `set_variable` and `dump_raw_data` match against the right gateway via `device_id`, or the single configured one if only one exists.
 
-**Migrering:** `_migrate_entity_unique_ids` hanterar historiska unique_id-formatändringar (prefix-tillägg, climate-suffix) automatiskt vid uppstart så uppgraderingar inte skapar dubbletter.
-
----
-
-## Officiella Pulse-appen (referens)
-
-I Uponor Smatrix Pulse-appen (kräver kommunikationsmodul, se [R-208](#uponor-smatrix-pulse-com-r-208-kommunikationsmodul)) finns per termostat följande menyval:
-
-- **Mina ECO profiler** — schemaläggning av Komfort/ECO-växling per rum
-- **Visa trender** — historik över temperatur/luftfuktighet över tid
-- **Rumsinställningar** — konfiguration av det enskilda rummets termostat
-
-Dessa funktioner ligger i Uponors app/moln och har ingen motsvarighet i integrationen idag — JNAP-gatewayen exponerar inte ECO-profilscheman eller historiska trenddata, bara aktuella variabelvärden (se [dump_raw_data](custom_components/uponorx265/__init__.py)).
-
-### Struktur under "Mina ECO profiler"
-
-**System ECO-justering**
-- Global temperaturförskjutning för ECO-läge, −4 °C till +4 °C.
-
-**Förinställda profiler**
-- 6 stycken (ECO-profil 1–6), var och en med:
-  - Dagval (vilka veckodagar profilen gäller)
-  - 3 tidsintervall per dag, vart och ett med ECO på/av-tidpunkt
-
-**Mina ECO-profiler** (användardefinierade, per rum)
-- Varje profil har: namn (redigerbart), tilldelat rum, schema Mån–Sön
-- "Lägg till ECO" skapar en ny egen profil
-
-Ingen av dessa scheman/profiler finns representerade som HA-variabler i det data integrationen läser via JNAP — de hanteras helt i appen/reglercentralens interna logik.
-
-### Struktur under "Rumsinställningar"
-
-- **Rumsnamn** → ändra rummets namn
-- **ECO-profil** → tilldela en av "Mina ECO-profiler" (t.ex. "Min ECO-profil 1") till rummet
-- **ECO temperatursänkning** → sätt temperatursänkningen för rummet, 0,5–10 °C
-- **Åsidosätt termostatvärde** → på/av-reglage
-- **Avancerade rumsinställningar** →
-  - **Max börvärde** → 5–35 °C
-  - **Min börvärde** → 5–35 °C
-  - **Lägg till i medeltemperatur** → på/av; endast visningsvärde, påverkar inte driften (PÅ som standard)
-  - **Komfortinställning** → 0–12 %, grundnivå för komfort när inget värmebehov finns (kortar uppvärmningstid, t.ex. vid annan värmekälla som braskamin — värdet är andel av tid styrdonen hålls öppna)
-  - **Golvtemperatur** (visning) samt **Maximal/Lägsta golvtemperatur** (gränsvärden, endast vid RFT-regleringsläge)
-
-Jämförelse mot integrationen:
-- **Max/Min börvärde** motsvarar redan `get_max_limit()` / `get_min_limit()` i [climate.py](custom_components/uponorx265/climate.py) (`min_temp`/`max_temp`-properties).
-- **ECO temperatursänkning** motsvarar `get_eco_setback()`, exponerad via `UponorClimate.extra_state_attributes`.
-- **Lägg till i medeltemperatur** motsvarar `ClimatControlInAvg`-switchen (`avg_included`, styrs av `get_inavg()`/`async_iset_inavg()`) i [switch.py](custom_components/uponorx265/switch.py), gated bakom `CONF_SWITCH_SENSOR_AVG`.
-- **ECO-profil, Rumsnamn, Åsidosätt termostatvärde, Komfortinställning, Golvtemperaturgränser** har ingen motsvarighet i integrationen idag — inte tillgängliga via JNAP-variablerna som läses in.
-
-### Systeminställningar / Installatörsinställningar i appen
-
-Nås via appens sidomeny → "Systeminställningar", eller specifikt "Installatörsinställningar" (varningstext: *"Om du ändrar dessa inställningar kan ditt system sluta fungera korrekt"*).
-
-- **Kyla** → aktivera kylläge i systemet (avaktiverat vid leverans); ger sedan åtkomst till kylinställningar
-- **GPI-konfiguration** → ställer in vilken signaltyp reglercentralens GPI (universalingång) tar emot: **Omkoppling Komfort/ECO** eller **Allmänt systemlarm** (Omkoppling värme/kyla kräver att systemet har värme/kyla; inaktiveras automatiskt om en extern Komfort/ECO-omkopplare, t.ex. en T-143 som systemenhet, redan är ansluten)
-- **Pumpstyrning** → **Individuell** (en cirkulationspump per reglercentral, ansluten till relä 1) eller **Gemensam** (en pump för hela systemet, ansluten till masterreglercentralens relä 1 — reläerna på underreglercentraler blir då tillgängliga för andra funktioner)
-- **Reläer för reglercentral** → två oberoende reläer (Relä 1 / Relä 2) per reglercentral, med fördefinierade kombinationer:
-  - **Masterreglercentral:** Cirkulationspump+Panna (standard) · Cirkulationspump+Omkoppling värme/kyla · Cirkulationspump+Avfuktare · Kylaggregat+Panna · Cirkulationspump+Komfort/ECO · Ej konfigurerad+Ej konfigurerad
-  - **Underreglercentral** (kräver kommunikationsmodul): Cirkulationspump+Omkoppling värme/kyla · Cirkulationspump+Avfuktare · Ej konfigurerad+Ej konfigurerad
-- **Bypass rum** → systemet hanterar bypass för **upp till två rum per reglercentral** (för att upprätthålla minimiflöde); rum väljs manuellt per reglercentral-flik, eller med en tidsgräns för bypassfunktionen
-- **Motionering av ventil/pump** → förhindrar att cirkulationspumpar/styrdon kärvar vid längre inaktivitet. Som standard: var 6:e dag ±24 h, pumpen körs 3 minuter, styrdonen öppnas/stängs helt. Körs fristående per komponent, endast om komponenten inte använts sedan senaste motioneringen
-- **Autobalansering** → **Aktiverad** (standard) eller **Inaktiverad**; styr styrdonens utgångar via pulsbreddsmodulering (PWM) i stället för enkla till/från-signaler, ger jämnare golvtemperaturer, snabbare reaktionstid och lägre energiförbrukning. Kan kombineras med instrypt balansering
-- **Installationens namn** → fritt textfält
-- **Gräns för låg medeltemperatur** → utlöser larm om systemets medeltemperatur (beräknad från rum flaggade "Lägg till i medeltemperatur") faller under gränsvärdet. Förinställning 10 °C (5–30 °C), plus hysteres, förinställning 5 °C (1–10 °C); larmet släcks när medeltemperaturen stiger över gräns + hysteres
-- **Systeminformation** → lista över alla anslutna enheter (reglercentral, kommunikationsmodul, termostater) med modell, mjukvaruversion och ID, samt möjlighet att trigga uppdatering
-- **Tillopp temp. kontroll** → på/av-reglage (framledningstemperaturövervakning)
-
-Jämförelse mot integrationen:
-- **Pumpstyrning** (Individuell/Gemensam) motsvarar exakt `PumpManagementSelect`/`get_pump_management()`/`sys_pump_management` i [select.py](custom_components/uponorx265/select.py) och [__init__.py](custom_components/uponorx265/__init__.py) — samma `"0"`/`"1"`-värden.
-- **Reläer för reglercentral** motsvarar `ControllerRelayConfigSelect`/`get_controller_relayconfig()` (`C?_controller_relays_config`) i samma filer; integrationens `RELAY_CONFIG_OPTIONS` (`not_in_use`/`pump_heater`/`pump_eco_comfort`/`not_configured`) är en förenklad delmängd av apptabellens kombinationer.
-- **Bypass rum, max 2 per reglercentral** bekräftar exakt den affärsregel som redan är hårdkodad i `BypassEnableSwitch.async_turn_on` ([switch.py](custom_components/uponorx265/switch.py)) — appens gräns och integrationens gräns är alltså identiska.
-- **Kyla, GPI-konfiguration, Motionering av ventil/pump, Autobalansering, Gräns för låg medeltemperatur, Installationens namn, Systeminformation, Tillopp temp. kontroll** har ingen motsvarighet i integrationen idag.
+**Migration:** `_migrate_entity_unique_ids` handles historical unique_id format changes (prefix addition, climate suffix) automatically on startup so upgrades don't create duplicates.
 
 ---
 
-## Rådata (JNAP-variabler)
+## Official Pulse app (reference)
 
-`dump_raw_data`-tjänsten returnerar hela `_data`-dictionaryn rakt av — alla `waspVarName`/`waspVarValue`-par gatewayen exponerar. Variabelnamnen följer några tydliga prefixmönster:
+The Uponor Smatrix Pulse app (requires a communication module, see [R-208](#uponor-smatrix-pulse-com-r-208-communication-module)) has the following menu options per thermostat:
 
-| Prefix | Nivå | Exempel | Innehåll |
+- **My ECO profiles** — Comfort/ECO schedule per room
+- **Show trends** — history of temperature/humidity over time
+- **Room settings** — configuration for the individual room's thermostat
+
+These features live in Uponor's app/cloud and have no equivalent in the integration today — the JNAP gateway doesn't expose ECO profile schedules or historical trend data, only current variable values (see [dump_raw_data](custom_components/uponorx265/__init__.py)).
+
+### Structure under "My ECO profiles"
+
+**System ECO adjustment**
+- Global temperature offset for ECO mode, −4 °C to +4 °C.
+
+**Preset profiles**
+- 6 of them (ECO profile 1–6), each with:
+  - Day selection (which weekdays the profile applies to)
+  - 3 time intervals per day, each with an ECO on/off time
+
+**My ECO profiles** (user-defined, per room)
+- Each profile has: name (editable), assigned room, Mon–Sun schedule
+- "Add ECO" creates a new custom profile
+
+None of these schedules/profiles are represented as HA variables in the data the integration reads via JNAP — they're handled entirely by the app/controller's internal logic.
+
+### Structure under "Room settings"
+
+- **Room name** → change the room's name
+- **ECO profile** → assign one of "My ECO profiles" (e.g. "My ECO profile 1") to the room
+- **ECO temperature setback** → set the temperature setback for the room, 0.5–10 °C
+- **Override thermostat value** → on/off toggle
+- **Advanced room settings** →
+  - **Max setpoint** → 5–35 °C
+  - **Min setpoint** → 5–35 °C
+  - **Include in average temperature** → on/off; display value only, doesn't affect operation (ON by default)
+  - **Comfort setting** → 0–12%, baseline comfort level when there's no heating demand (shortens heat-up time, e.g. with another heat source like a wood stove — the value is the fraction of time the actuators are held open)
+  - **Floor temperature** (display) plus **Maximum/Minimum floor temperature** (limits, only in RFT control mode)
+
+Comparison against the integration:
+- **Max/Min setpoint** already corresponds to `get_max_limit()` / `get_min_limit()` in [climate.py](custom_components/uponorx265/climate.py) (`min_temp`/`max_temp` properties).
+- **ECO temperature setback** corresponds to `get_eco_setback()`, exposed via `UponorClimate.extra_state_attributes`.
+- **Include in average temperature** corresponds to the `ClimatControlInAvg` switch (`avg_included`, controlled by `get_inavg()`/`async_iset_inavg()`) in [switch.py](custom_components/uponorx265/switch.py), gated behind `CONF_SWITCH_SENSOR_AVG`.
+- **ECO profile, Room name, Override thermostat value, Comfort setting, Floor temperature limits** have no equivalent in the integration today — not available via the JNAP variables it reads.
+
+### System settings / installer settings in the app
+
+Accessed via the app's side menu → "System settings", or specifically "Installer settings" (warning text: *"Changing these settings may cause your system to stop working correctly"*).
+
+- **Cooling** → enable cooling mode in the system (disabled at delivery); then gives access to cooling settings
+- **GPI configuration** → sets which signal type the controller's GPI (general purpose input) accepts: **Comfort/ECO switching** or **General system alarm** (heat/cool switching requires the system to have heating/cooling; automatically disabled if an external Comfort/ECO switch, e.g. a T-143 registered as a system device, is already connected)
+- **Pump management** → **Individual** (one circulation pump per controller, connected to relay 1) or **Common** (one pump for the whole system, connected to the master controller's relay 1 — the relays on slave controllers then become available for other functions)
+- **Controller relays** → two independent relays (Relay 1 / Relay 2) per controller, with predefined combinations:
+  - **Master controller:** Circulation pump+Boiler (default) · Circulation pump+Heat/cool switching · Circulation pump+Dehumidifier · Cooling unit+Boiler · Circulation pump+Comfort/ECO · Not configured+Not configured
+  - **Slave controller** (requires communication module): Circulation pump+Heat/cool switching · Circulation pump+Dehumidifier · Not configured+Not configured
+- **Bypass room** → the system handles bypass for **up to two rooms per controller** (to maintain minimum flow); rooms are chosen manually per controller tab, or with a time limit for the bypass function
+- **Valve/pump exercise** → prevents circulation pumps/actuators from seizing up during extended inactivity. By default: every 6th day ±24 h, the pump runs for 3 minutes, the actuators are fully opened/closed. Runs independently per component, only if the component hasn't been used since the last exercise
+- **Autobalancing** → **Enabled** (default) or **Disabled**; controls the actuator outputs via pulse-width modulation (PWM) instead of simple on/off signals, giving more even floor temperatures, faster response time, and lower energy consumption. Can be combined with pre-balancing
+- **Installation name** → free text field
+- **Low average temperature limit** → triggers an alarm if the system's average temperature (calculated from rooms flagged "Include in average temperature") falls below the threshold. Default 10 °C (5–30 °C), plus hysteresis, default 5 °C (1–10 °C); the alarm clears when the average temperature rises above threshold + hysteresis
+- **System information** → list of all connected devices (controller, communication module, thermostats) with model, software version, and ID, plus the ability to trigger an update
+- **Supply temp. control** → on/off toggle (supply water temperature monitoring)
+
+Comparison against the integration:
+- **Pump management** (Individual/Common) corresponds exactly to `PumpManagementSelect`/`get_pump_management()`/`sys_pump_management` in [select.py](custom_components/uponorx265/select.py) and [__init__.py](custom_components/uponorx265/__init__.py) — the same `"0"`/`"1"` values.
+- **Controller relays** corresponds to `ControllerRelayConfigSelect`/`get_controller_relayconfig()` (`C?_controller_relays_config`) in the same files; the integration's `RELAY_CONFIG_OPTIONS` (`not_in_use`/`pump_heater`/`pump_eco_comfort`/`not_configured`) is a simplified subset of the app's combination table.
+- **Bypass room, max 2 per controller** confirms exactly the business rule already hardcoded in `BypassEnableSwitch.async_turn_on` ([switch.py](custom_components/uponorx265/switch.py)) — the app's limit and the integration's limit are therefore identical.
+- **Cooling, GPI configuration, Valve/pump exercise, Autobalancing, Low average temperature limit, Installation name, System information, Supply temp. control** have no equivalent in the integration today.
+
+---
+
+## Raw data (JNAP variables)
+
+The `dump_raw_data` service returns the entire `_data` dictionary as-is — every `waspVarName`/`waspVarValue` pair the gateway exposes. The variable names follow a few clear prefix patterns:
+
+| Prefix | Level | Example | Contents |
 |---|---|---|---|
-| `cust_*` | Gateway/kund | `cust_Controller1_Name`, `cust_C1_T1_name`, `cust_wifi_device`, `cust_ip_device`, `cust_Enable_SW_Update`, `cust_General_RH_Setpoint`, `cust_Low_temperature_Limit` | Namn (reglercentraler, rum), nätverk, mjukvaruuppdatering, larmgränser |
-| `sys_*` | System | `sys_pump_management`, `sys_autobalance`, `sys_heat_cool_mode`, `sys_time_limit_bypass`, `sys_day`/`sys_Month`/`sys_year`/…, `sys_controller_?_presence` | Globala driftinställningar, systemklocka, vilka reglercentraler som är anslutna |
-| `C?_*` (utan `T?`) | Reglercentral | `C1_controller_relays_config`, `C1_stat_pump_relay`, `C1_stat_demand`, `C1_output_module_configuration`, `C1_general_purpose_input`, `C1_average_room_temperature`, `C1_sw_version` | Reläkonfiguration, pump/panna-status, GPI, medeltemperatur, mjukvaruversion, larm |
-| `C?_T?_*` | Termostat | `C1_T1_setpoint`, `C1_T1_room_temperature`, `C1_T1_eco_setting`, `C1_T1_bypass_enable`, `C1_T1_eco_profile_number`, `C1_T1_stat_*_error` | Bör-/rumstemperatur, ECO-inställningar, bypass, felstatusar per termostat |
-| `C?_T?_<Veckodag>` | Termostat, schema | `C1_T1_Monday` … `C1_T1_Sunday` | 12-tecken hex-bitmask per veckodag — schemat för ECO-profilen som är tilldelad rummet |
-| `controller?_id`, `C?_thermostat?_id`, `C?_TTH_?_id` | Identiteter | `controller1_id`, `C1_thermostat1_id` | Hårdvaru-ID:n för reglercentraler, termostater och externa TTH-sensorer |
+| `cust_*` | Gateway/customer | `cust_Controller1_Name`, `cust_C1_T1_name`, `cust_wifi_device`, `cust_ip_device`, `cust_Enable_SW_Update`, `cust_General_RH_Setpoint`, `cust_Low_temperature_Limit` | Names (controllers, rooms), network, firmware update, alarm limits |
+| `sys_*` | System | `sys_pump_management`, `sys_autobalance`, `sys_heat_cool_mode`, `sys_time_limit_bypass`, `sys_day`/`sys_Month`/`sys_year`/…, `sys_controller_?_presence` | Global operating settings, system clock, which controllers are connected |
+| `C?_*` (no `T?`) | Controller | `C1_controller_relays_config`, `C1_stat_pump_relay`, `C1_stat_demand`, `C1_output_module_configuration`, `C1_general_purpose_input`, `C1_average_room_temperature`, `C1_sw_version` | Relay configuration, pump/boiler status, GPI, average temperature, software version, alarms |
+| `C?_T?_*` | Thermostat | `C1_T1_setpoint`, `C1_T1_room_temperature`, `C1_T1_eco_setting`, `C1_T1_bypass_enable`, `C1_T1_eco_profile_number`, `C1_T1_stat_*_error` | Setpoint/room temperature, ECO settings, bypass, error statuses per thermostat |
+| `C?_T?_<Weekday>` | Thermostat, schedule | `C1_T1_Monday` … `C1_T1_Sunday` | 12-character hex bitmask per weekday — the schedule for the ECO profile assigned to the room |
+| `controller?_id`, `C?_thermostat?_id`, `C?_TTH_?_id` | Identities | `controller1_id`, `C1_thermostat1_id` | Hardware IDs for controllers, thermostats, and external TTH sensors |
 
-**Rättelse mot tidigare notering:** ECO-profilernas veckoschema är faktiskt tillgängligt i rådatat via `C?_T?_<Veckodag>`-bitmaskerna (t.ex. `C1_T1_Monday: c0ffffffffff`) tillsammans med `C?_T?_eco_profile_number` och `cust_C?_T?_Custom_Eco_Profile`. Det som saknas är inte datat i sig, utan en tolkning/exponering av det i integrationen — bitmaskformatet är inte avkodat någonstans i koden idag.
+**Correction to an earlier note:** the ECO profiles' weekly schedule is actually available in the raw data via the `C?_T?_<Weekday>` bitmasks (e.g. `C1_T1_Monday: c0ffffffffff`) together with `C?_T?_eco_profile_number` and `cust_C?_T?_Custom_Eco_Profile`. What's missing isn't the data itself, but an interpretation/exposure of it in the integration — the bitmask format isn't decoded anywhere in the code today.
 
-Andra observationer från dumpen:
-- `sys_pump_management: '1'` (gemensam) och `C1_controller_relays_config: '3'` / `C2_controller_relays_config: '1'` visar `pump_heater` på C1 och `not_in_use` på C2 — matchar regeln att C2:s pumprelä döljs när pumpstyrningen är gemensam.
-- `C1_stat_pump_relay` och `C1_stat_demand` är boolean-strängar (`'0'`/`'1'`), som förväntat av `get_pump_relay()`/`get_boiler_demand()`.
-- Termperaturvärden (`setpoint`, `room_temperature`, m.fl.) lagras som heltal i tiondels grader (t.ex. `692` = 20,5 °C), `32767` betyder "ej ansluten/inget värde".
-- `C1_general_purpose_input: '3'` och `C1_output_module_configuration: '7'` är separata bitfält från `controller_relays_config` — inte samma sak som relakonfigurationsvalet i appen.
+Other observations from the dump:
+- `sys_pump_management: '1'` (common) and `C1_controller_relays_config: '3'` / `C2_controller_relays_config: '1'` show `pump_heater` on C1 and `not_in_use` on C2 — matches the rule that C2's pump relay is hidden when pump management is common.
+- `C1_stat_pump_relay` and `C1_stat_demand` are boolean strings (`'0'`/`'1'`), as expected by `get_pump_relay()`/`get_boiler_demand()`.
+- Temperature values (`setpoint`, `room_temperature`, etc.) are stored as integers in tenths of a degree (e.g. `692` = 20.5 °C), `32767` means "not connected/no value".
+- `C1_general_purpose_input: '3'` and `C1_output_module_configuration: '7'` are separate bitfields from `controller_relays_config` — not the same thing as the relay configuration choice in the app.
 
 <details>
-<summary>Exempel på fullständig <code>dump_raw_data</code>-utdata (anonymiserad)</summary>
+<summary>Example of full <code>dump_raw_data</code> output (anonymized)</summary>
 
 ```yaml
 cust_New_ControllerSW: '0'
@@ -1482,177 +1482,177 @@ cust_C1_T1_Custom_Eco_Profile: '1'
 
 ---
 
-## Hårdvara som stöds
+## Supported hardware
 
-Integrationen stöder **Uponor Smatrix Wave Pulse (X-265)** och **Uponor Smatrix Base Pulse (X-245)**. Reglercentralen (X-265/X-245) är gatewayen som integrationen pratar JNAP med. Termostaterna blir `climate`-entiteter i HA; dial-modellerna T-144/T-145 (se [const.py](custom_components/uponorx265/const.py) `DIAL_THERMOSTAT_MODELS`) kräver "HA controlled"-läge för fjärrstyrning av börvärde.
+The integration supports the **Uponor Smatrix Wave Pulse (X-265)** and **Uponor Smatrix Base Pulse (X-245)** systems. The controller (X-265/X-245) is the gateway the integration speaks JNAP with. The thermostats become `climate` entities in HA; the dial models T-144/T-145 (see [const.py](custom_components/uponorx265/const.py) `DIAL_THERMOSTAT_MODELS`) require "HA controlled" mode for remote setpoint control.
 
 ### Uponor Smatrix Wave Pulse (X-265)
 
-| Produkt | Typ |
+| Product | Type |
 |---|---|
-| Uponor Smatrix A-1XX | Transformatormodul |
-| Uponor Smatrix Wave Pulse X-265 | Reglercentral (gateway) |
-| Uponor Smatrix Wave Pulse M-262 | Kopplingsmodul |
-| Uponor Smatrix Wave Pulse A-265 | Antenn |
-| Uponor Smatrix Pulse Com R-208 | Kommunikationsmodul |
-| Uponor Smatrix Wave T-169 | Digital termostat, med sensor för relativ luftfuktighet och drift |
-| Uponor Smatrix Wave T-168 | Programmerbar digital termostat, med givare för relativ luftfuktighet |
-| Uponor Smatrix Wave T-166 | Digital termostat |
-| Uponor Smatrix Wave T-165 | Standardtermostat med tryckt skala på ratt |
-| Uponor Smatrix Wave T-163 | Termostat för offentliga miljöer |
-| Uponor Smatrix Wave T-162 | Termostathuvud |
-| Uponor Smatrix Wave T-161 | Rumsgivartermostat, med givare för relativ luftfuktighet och drift |
-| Uponor Smatrix Wave M-161 | Relämodul |
+| Uponor Smatrix A-1XX | Transformer module |
+| Uponor Smatrix Wave Pulse X-265 | Controller (gateway) |
+| Uponor Smatrix Wave Pulse M-262 | Extension module |
+| Uponor Smatrix Wave Pulse A-265 | Antenna |
+| Uponor Smatrix Pulse Com R-208 | Communication module |
+| Uponor Smatrix Wave T-169 | Digital thermostat, with relative humidity and occupancy sensor |
+| Uponor Smatrix Wave T-168 | Programmable digital thermostat, with relative humidity sensor |
+| Uponor Smatrix Wave T-166 | Digital thermostat |
+| Uponor Smatrix Wave T-165 | Standard thermostat with printed dial scale |
+| Uponor Smatrix Wave T-163 | Thermostat for public environments |
+| Uponor Smatrix Wave T-162 | Thermostat head |
+| Uponor Smatrix Wave T-161 | Room sensor thermostat, with relative humidity and occupancy sensor |
+| Uponor Smatrix Wave M-161 | Relay module |
 
 ### Uponor Smatrix Base Pulse (X-245)
 
-| Produkt | Typ |
+| Product | Type |
 |---|---|
-| Uponor Smatrix A-1XX | Transformatormodul |
-| Uponor Smatrix Base Pulse X-245 | Reglercentral (gateway) |
-| Uponor Smatrix Base Pulse M-242 | Kopplingsmodul |
-| Uponor Smatrix Base Pulse M-243 | Stjärnmodul |
-| Uponor Smatrix Pulse Com R-208 | Kommunikationsmodul |
-| Uponor Smatrix Base T-149 | Digital termostat, med sensor för relativ luftfuktighet och drift |
-| Uponor Smatrix Base T-148 | Programmerbar digital termostat, med givare för relativ luftfuktighet |
-| Uponor Smatrix Base T-146 | Digital termostat |
-| Uponor Smatrix Base T-145 | Standardtermostat med tryckt skala på ratt |
-| Uponor Smatrix Base T-144 | Infälld termostat |
-| Uponor Smatrix Base T-143 | Termostat för offentliga miljöer |
-| Uponor Smatrix Base T-141 | Rumsgivartermostat, med givare för relativ luftfuktighet och drift |
+| Uponor Smatrix A-1XX | Transformer module |
+| Uponor Smatrix Base Pulse X-245 | Controller (gateway) |
+| Uponor Smatrix Base Pulse M-242 | Extension module |
+| Uponor Smatrix Base Pulse M-243 | Star module |
+| Uponor Smatrix Pulse Com R-208 | Communication module |
+| Uponor Smatrix Base T-149 | Digital thermostat, with relative humidity and occupancy sensor |
+| Uponor Smatrix Base T-148 | Programmable digital thermostat, with relative humidity sensor |
+| Uponor Smatrix Base T-146 | Digital thermostat |
+| Uponor Smatrix Base T-145 | Standard thermostat with printed dial scale |
+| Uponor Smatrix Base T-144 | Recessed thermostat |
+| Uponor Smatrix Base T-143 | Thermostat for public environments |
+| Uponor Smatrix Base T-141 | Room sensor thermostat, with relative humidity and occupancy sensor |
 
-### Identifiering av termostatmodell
+### Thermostat model identification
 
-JNAP-gatewayen exponerar inte modellnamnet på termostaterna direkt — bara ett serienummer (`C?_thermostatN_id`) och en rå hårdvarutypkod (`C?_T?_thermostat_type`). Integrationen gissar modellen från dessa i [`_detect_thermostat_model()`](custom_components/uponorx265/__init__.py) (`__init__.py`):
+The JNAP gateway doesn't expose the thermostat's model name directly — only a serial number (`C?_thermostatN_id`) and a raw hardware type code (`C?_T?_thermostat_type`). The integration guesses the model from these in [`_detect_thermostat_model()`](custom_components/uponorx265/__init__.py) (`__init__.py`):
 
-- Hårdvarutypkoden (`hwid`) är det första urvalskriteriet:
-  - `hwid == 2` → **T-146** (fältbekräftat på `sn`-prefix `285`).
-  - `hwid == 0` → T-144/T-145-familjen, som delar samma `hwid` och behöver särskiljas via serienumret.
-- För `hwid == 0` bryts serienumrets första 4 siffror (`sn`) upp i prefix (`prodk`, första 3 siffrorna) och sista siffran (`mod`):
-  - **Känd regel:** prefix `269` → sista siffran `1` = T-144, sista siffran `2` = T-145.
-  - **Catch-all:** alla övriga `hwid == 0`-enheter (okänt prefix, eller `269` med annan slutsiffra) defaultar till **T-145** — samma beteende som Uponors egen app tycks ha när den inte kan skilja dem åt. Prefix `268` (fältbekräftat, `sn "2688"`) hanteras redan av catch-all:en men har en egen gren kvar som markering, ifall ett mönster framträder när fler termostater rapporterar in.
-- Går identifieringen inte att göra alls (t.ex. saknad `thermostat_type`-variabel) faller den tillbaka på senast cachad modell (`get_thermostat_model()`), och i sista hand `None` — HA visar då ingen modell för enheten, men funktionen påverkas inte (endast `DIAL_THERMOSTAT_MODELS`-gating, se `requires_local_override()`).
+- The hardware type code (`hwid`) is the first selection criterion:
+  - `hwid == 2` → **T-146** (field-confirmed on `sn` prefix `285`).
+  - `hwid == 0` → the T-144/T-145 family, which shares the same `hwid` and needs to be told apart via the serial number.
+- For `hwid == 0`, the serial number's first 4 digits (`sn`) are split into a prefix (`prodk`, first 3 digits) and a last digit (`mod`):
+  - **Known rule:** prefix `269` → last digit `1` = T-144, last digit `2` = T-145.
+  - **Catch-all:** every other `hwid == 0` unit (unknown prefix, or `269` with a different last digit) defaults to **T-145** — the same behavior Uponor's own app seems to have when it can't tell them apart either. Prefix `268` (field-confirmed, `sn "2688"`) is already covered by the catch-all but keeps its own branch as a marker, in case a pattern emerges once more thermostats report in.
+- If identification isn't possible at all (e.g. a missing `thermostat_type` variable), it falls back to the last cached model (`get_thermostat_model()`), and ultimately `None` — HA then shows no model for the device, but functionality is unaffected (only the `DIAL_THERMOSTAT_MODELS` gating, see `requires_local_override()`).
 
-Detta är reverse-engineering utan tillgång till Uponors officiella serienummerschema — det finns alltså ingen garanti att `hwid`/prefix-mönstret håller för hårdvara vi inte sett än. Ny hårdvara loggas via `dump_hardware_info`-tjänsten (`sn_start`, `hardware_type_raw`, `detected_model`) och kan skickas in för att förfina reglerna ovan.
+This is reverse-engineering without access to Uponor's official serial number scheme — so there's no guarantee the `hwid`/prefix pattern holds for hardware we haven't seen yet. New hardware is logged via the `dump_hardware_info` service (`sn_start`, `hardware_type_raw`, `detected_model`) and can be submitted to refine the rules above.
 
-### Komponentbeskrivningar (ur Uponors installationsmanual)
+### Component descriptions (from Uponor's installation manual)
 
 <details>
-<summary><strong>Uponor Smatrix Base Pulse X-245</strong> (reglercentral)</summary>
+<summary><strong>Uponor Smatrix Base Pulse X-245</strong> (controller)</summary>
 
-- Integrerade Dynamic Energy Management (DEM)-funktioner, t.ex. autobalansering (aktiverad i utgångsläget). Övriga DEM-funktioner (komfortinställning, rum-bypass, övervakning av framledningstemperatur) kräver Pulse-appen (kommunikationsmodul) och i vissa fall Uponors molntjänster.
-- Elektronisk styrning av styrdon, max åtta styrdon (24 V AC).
-- Två-vägskommunikation med upp till sex rumstermostater.
-- Omkoppling värme/kyla (avancerad) och/eller Komfort/ECO via sluten kontakt, termostat för offentliga miljöer eller Pulse-appen.
-- Separata reläer för pump- och pannstyrning; övriga kontrollfunktioner kräver kommunikationsmodul + app.
-- Ventil- och pumpmotion. Relativ fuktighetskontroll (kräver Pulse-appen).
-- Styrning av kombinerad golvvärme/-kyla och takkyla (kräver kommunikationsmodul + app).
-- ECO-läge sänker inomhustemp (värme) / höjer (kyla); aktiveras globalt via sluten kontakt, termostat för offentliga miljöer eller appen, eller per rum via programmerbar termostat/ECO-profiler.
-- Tillval: kommunikationsmodul för appanslutning (fjärranslutning kräver Uponors molntjänster); kopplingsmodul (+6 termostatkanaler, +6 styrdonsutgångar); stjärnmodul (+8 anslutningsbussar); upp till fyra reglercentraler i ett system (kräver kommunikationsmodul + app); modulär placering med löstagbar transformator; montering i skåp/vägg (DIN-skena eller skruvar); valfri placering/orientering (kommunikationsmodulen måste dock monteras vertikalt).
+- Integrated Dynamic Energy Management (DEM) features, e.g. autobalancing (enabled by default). Other DEM features (comfort setting, room bypass, supply temperature monitoring) require the Pulse app (communication module) and in some cases Uponor's cloud services.
+- Electronic actuator control, up to eight actuators (24 V AC).
+- Two-way communication with up to six room thermostats.
+- Heat/cool switching (advanced) and/or Comfort/ECO via closing contact, public-environment thermostat, or the Pulse app.
+- Separate relays for pump and boiler control; other control functions require a communication module + app.
+- Valve and pump exercise. Relative humidity control (requires the Pulse app).
+- Control of combined floor heating/cooling and ceiling cooling (requires a communication module + app).
+- ECO mode lowers indoor temp (heating) / raises it (cooling); activated globally via closing contact, public-environment thermostat, or the app, or per room via a programmable thermostat/ECO profiles.
+- Options: communication module for app connectivity (remote access requires Uponor's cloud services); extension module (+6 thermostat channels, +6 actuator outputs); star module (+8 bus connections); up to four controllers in one system (requires a communication module + app); modular placement with a detachable transformer; cabinet/wall mounting (DIN rail or screws); free placement/orientation (the communication module must, however, be mounted vertically).
 
 </details>
 
 <details>
-<summary><strong>Uponor Smatrix Pulse Com R-208</strong> (kommunikationsmodul)</summary>
+<summary><strong>Uponor Smatrix Pulse Com R-208</strong> (communication module)</summary>
 
-- Ger Uponor Smatrix Pulse-appanslutning via Wi-Fi eller Ethernet — det är denna modul som exponerar JNAP-gatewayen som integrationen pratar med.
-- Extra funktioner via appen: inställningar för värme/kyla, ytterligare reläfunktioner (kylaggregat, avfuktare m.m.).
-- Kan integrera upp till fyra reglercentraler i ett system.
-- Montering i skåp eller på vägg (DIN-skena eller medföljande skruvar).
-
-</details>
-
-<details>
-<summary><strong>Uponor Smatrix Base M-242</strong> (kopplingsmodul)</summary>
-
-- Endast en kopplingsmodul per reglercentral.
-- Plugin-installation i befintlig reglercentral, ingen extra kabeldragning.
-- Registrerar upp till sex extra termostater och ansluter upp till sex extra styrdon (24 V).
-- Elektronisk styrning, ventilmotion.
+- Provides Uponor Smatrix Pulse app connectivity via Wi-Fi or Ethernet — this is the module that exposes the JNAP gateway the integration talks to.
+- Extra features via the app: heat/cool settings, additional relay functions (cooling unit, dehumidifier, etc.).
+- Can integrate up to four controllers in one system.
+- Cabinet or wall mounting (DIN rail or included screws).
 
 </details>
 
 <details>
-<summary><strong>Uponor Smatrix Base M-243</strong> (stjärnmodul)</summary>
+<summary><strong>Uponor Smatrix Base M-242</strong> (extension module)</summary>
 
-- Endast en stjärnmodul per busstyp (termostat- och/eller systembuss) per reglercentral; en stjärnmodul hanterar bara en busstyp åt gången.
-- Möjliggör stjärnnätsdragning i stället för bussnät — mer flexibel kabeldragning.
-- Kräver en Base Pulse-reglercentral. Adderar 8 extra bussanslutningar. Endast insignaler från termostater tillåts.
-- Ansluts direkt till reglercentralen eller kopplingsmodulen med kommunikationskabel.
-
-</details>
-
-<details>
-<summary><strong>Uponor Smatrix Base T-141</strong> (rumsgivartermostat)</summary>
-
-- Så liten som möjligt men reglerar ändå rumstemperaturen.
-- Drifttemperatursensor för ökad komfort.
-- Börvärde justerbart via appen (kräver kommunikationsmodul), 5–35 °C.
-- Gränsvärde för relativ luftfuktighet visas i appen (kräver kommunikationsmodul).
+- Only one extension module per controller.
+- Plug-in installation into an existing controller, no extra wiring needed.
+- Registers up to six extra thermostats and connects up to six extra actuators (24 V).
+- Electronic control, valve exercise.
 
 </details>
 
 <details>
-<summary><strong>Uponor Smatrix Base T-143</strong> (termostat för offentliga miljöer)</summary>
+<summary><strong>Uponor Smatrix Base M-243</strong> (star module)</summary>
 
-- Ratten dold — måste lossas från väggen för att ställa in temperatur; utlöser manipulationslarm vid borttagning (om aktiverat, syns även i appen med kommunikationsmodul).
-- Kan registreras som systemenhet — då avaktiveras intern rumssensor och extra funktioner blir tillgängliga.
-- Börvärde 5–35 °C via potentiometer på baksidan.
-- Slutande kontaktingång för påtvingat ECO-läge (som systemenhet).
-- Valfri extra utomhustemperaturgivare; golvtemperaturgränser endast konfigurerbara via appen.
-- DIP-switch för funktions-/givarläge samt aktivering av Komfort/ECO-schema.
+- Only one star module per bus type (thermostat and/or system bus) per controller; a star module only handles one bus type at a time.
+- Enables star-topology wiring instead of a bus network — more flexible cable routing.
+- Requires a Base Pulse controller. Adds 8 extra bus connections. Only inputs from thermostats are allowed.
+- Connects directly to the controller or extension module with a communication cable.
 
 </details>
 
 <details>
-<summary><strong>Uponor Smatrix Base T-144</strong> (infälld termostat)</summary>
+<summary><strong>Uponor Smatrix Base T-141</strong> (room sensor thermostat)</summary>
 
-- Speciellt utformad för väggmontage (infälld installation), stor ratt med tryckt skala, 21 °C markerat.
-- Max/min-temperatur endast inställbart via appen. Börvärde 5–35 °C.
-- LED-indikering (~60 s) vid värme-/kylbehov.
-- DIP-switch under ratten för Komfort/ECO-schemaläggning.
-- Olika installationsramar för switchskeneram.
-
-</details>
-
-<details>
-<summary><strong>Uponor Smatrix Base T-145</strong> (standardtermostat)</summary>
-
-- Stor ratt med tryckt skala, 21 °C markerat, LED-ring indikerar börvärdesändring vid vridning.
-- Max/min-temperatur endast inställbart via appen. Börvärde 5–35 °C.
-- LED nedre högra hörnet indikerar (~60 s) värme-/kylbehov.
-- DIP-switch på baksidan för Komfort/ECO-schemaläggning.
+- As small as possible while still controlling room temperature.
+- Occupancy temperature sensor for improved comfort.
+- Setpoint adjustable via the app (requires a communication module), 5–35 °C.
+- Relative humidity threshold shown in the app (requires a communication module).
 
 </details>
 
 <details>
-<summary><strong>Uponor Smatrix Base T-146</strong> (digital termostat med display)</summary>
+<summary><strong>Uponor Smatrix Base T-143</strong> (thermostat for public environments)</summary>
 
-- Upplyst display (släcks efter 10 s inaktivitet), visar °C/°F, kalibrerbar rumstemperatur, visar värme-/kylbehov och mjukvaruversion vid uppstart.
-- Börvärde 5–35 °C. Stöd för externa temperaturgivare (tillval).
-- Schemaläggning Komfort/ECO kräver Pulse-appen. Justerbar ECO-temperatursänkning.
-
-</details>
-
-<details>
-<summary><strong>Uponor Smatrix Base T-148</strong> (programmerbar digital termostat)</summary>
-
-- Display visar rumstemperatur, börvärde eller relativ luftfuktighet samt aktuell tid.
-- Rekommenderas endast i system **utan** kommunikationsmodul — den egna schemaläggningsfunktionen stängs av om en kommunikationsmodul finns i systemet.
-- Installationsguide för tid/datum, 12/24h-klocka, internminne mot strömavbrott.
-- Börvärde 5–35 °C, stöd för externa temperaturgivare.
-- Programmerbar Komfort/ECO-växling med eget ECO-värde; T-148 kan inte åsidosättas av andra systeminställningar när programmerad.
-- Gränsvärdeslarm för luftfuktighet på display (kräver kommunikationsmodul).
+- Dial hidden — must be removed from the wall to set the temperature; triggers a tamper alarm when removed (if enabled, also shown in the app with a communication module).
+- Can be registered as a system device — this disables the internal room sensor and unlocks extra functions.
+- Setpoint 5–35 °C via a potentiometer on the back.
+- Closing contact input for forced ECO mode (as a system device).
+- Optional extra outdoor temperature sensor; floor temperature limits only configurable via the app.
+- DIP switch for function/sensor mode and for enabling the Comfort/ECO schedule.
 
 </details>
 
 <details>
-<summary><strong>Uponor Smatrix Base T-149</strong> (e-papperstermostat)</summary>
+<summary><strong>Uponor Smatrix Base T-144</strong> (recessed thermostat)</summary>
 
-- Strömsnål e-pappersdisplay, uppdateras var 10:e minut. Visar °C/°F, rumstemperatur, börvärde eller relativ luftfuktighet.
-- Justering via +/- -knappar på sidan. Drifttemperatursensor, kalibrerbar rumstemperatur.
-- Visar Uponor-logotyp och mjukvaruversion vid uppstart. Börvärde 5–35 °C, stöd för externa temperaturgivare.
-- Schemaläggning Komfort/ECO kräver Pulse-appen. Justerbar ECO-temperatursänkning.
-- Gränsvärdeslarm för luftfuktighet på display (kräver kommunikationsmodul). Kan invertera displayfärger.
+- Specifically designed for wall mounting (recessed installation), large dial with printed scale, 21 °C marked.
+- Max/min temperature only settable via the app. Setpoint 5–35 °C.
+- LED indication (~60 s) on heating/cooling demand.
+- DIP switch under the dial for Comfort/ECO scheduling.
+- Different mounting frames available for switch-plate frames.
+
+</details>
+
+<details>
+<summary><strong>Uponor Smatrix Base T-145</strong> (standard thermostat)</summary>
+
+- Large dial with printed scale, 21 °C marked, LED ring indicates setpoint change while turning.
+- Max/min temperature only settable via the app. Setpoint 5–35 °C.
+- LED in the lower right corner indicates (~60 s) heating/cooling demand.
+- DIP switch on the back for Comfort/ECO scheduling.
+
+</details>
+
+<details>
+<summary><strong>Uponor Smatrix Base T-146</strong> (digital thermostat with display)</summary>
+
+- Backlit display (turns off after 10 s of inactivity), shows °C/°F, calibratable room temperature, shows heating/cooling demand and software version on startup.
+- Setpoint 5–35 °C. Support for external temperature sensors (optional).
+- Comfort/ECO scheduling requires the Pulse app. Adjustable ECO temperature setback.
+
+</details>
+
+<details>
+<summary><strong>Uponor Smatrix Base T-148</strong> (programmable digital thermostat)</summary>
+
+- Display shows room temperature, setpoint, or relative humidity, plus the current time.
+- Recommended only in systems **without** a communication module — its own scheduling function is disabled if a communication module is present in the system.
+- Installation wizard for time/date, 12/24h clock, internal memory to survive power outages.
+- Setpoint 5–35 °C, support for external temperature sensors.
+- Programmable Comfort/ECO switching with its own ECO value; T-148 cannot be overridden by other system settings once programmed.
+- Humidity threshold alarm on the display (requires a communication module).
+
+</details>
+
+<details>
+<summary><strong>Uponor Smatrix Base T-149</strong> (e-paper thermostat)</summary>
+
+- Low-power e-paper display, updates every 10 minutes. Shows °C/°F, room temperature, setpoint, or relative humidity.
+- Adjustment via +/- buttons on the side. Occupancy temperature sensor, calibratable room temperature.
+- Shows the Uponor logo and software version on startup. Setpoint 5–35 °C, support for external temperature sensors.
+- Comfort/ECO scheduling requires the Pulse app. Adjustable ECO temperature setback.
+- Humidity threshold alarm on the display (requires a communication module). Can invert display colors.
 
 </details>
