@@ -802,7 +802,8 @@ class UponorStateProxy:
 
         if new_metadata != self._storage_metadata:
             self._storage_metadata = new_metadata
-            await self._store.async_save(self._compose_storage_payload())
+            async with self._storage_lock:
+                await self._store.async_save(self._compose_storage_payload())
 
     # -------------------------------------------------------------------------
     # Thermostat config

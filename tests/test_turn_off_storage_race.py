@@ -20,6 +20,21 @@ async def test_concurrent_turn_off_keeps_every_thermostats_memo(hass):
         data.update(thermostat_data(t, setpoint_c=19.5))
     proxy = make_state_proxy(hass, data=data)
 
+    # The test harness's mocked Store.async_save never actually suspends (no
+    # executor read, no disk write), so without a forced yield point the six
+    # turn_off coroutines below would just run to completion one after
+    # another even with no lock at all — passing regardless of the fix. A
+    # real Store does suspend (that's what lets them interleave in
+    # production), so inject an equivalent yield point here to make this a
+    # genuine regression test rather than an accidental pass.
+    real_save = proxy._store.async_save
+
+    async def yielding_save(payload):
+        await asyncio.sleep(0)
+        await real_save(payload)
+
+    proxy._store.async_save = yielding_save
+
     # Mirrors HA turning off several thermostats from one service call: the
     # coroutines run concurrently, not sequentially.
     await asyncio.gather(*(proxy.async_turn_off(t) for t in THERMOSTATS))

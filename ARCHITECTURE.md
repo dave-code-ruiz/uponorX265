@@ -5,10 +5,11 @@ Home Assistant custom integration that connects to an **Uponor Smatrix Pulse** g
 ## Contents
 
 1. [Architecture](#architecture)
-2. [Functionality](#functionality)
-3. [Official Pulse app (reference)](#official-pulse-app-reference)
-4. [Raw data (JNAP variables)](#raw-data-jnap-variables)
-5. [Supported hardware](#supported-hardware)
+2. [Testing](#testing)
+3. [Functionality](#functionality)
+4. [Official Pulse app (reference)](#official-pulse-app-reference)
+5. [Raw data (JNAP variables)](#raw-data-jnap-variables)
+6. [Supported hardware](#supported-hardware)
 
 ---
 
@@ -29,7 +30,19 @@ The gateway's `device_info` identifier and serial number are based on its MAC ad
 
 **Important limitation:** ARP only works within the same broadcast domain/subnet. If the HA host and the gateway are on different subnets/VLANs, the MAC address can never be resolved (the kernel never gets an ARP entry for it), and it permanently falls back to the host-based ID — this is not a code bug, it's a network topology limitation.
 
-Since the gateway ID's format can change over time (host-based → lowercase MAC → uppercase MAC, in the order the integration has evolved), `_migrate_gateway_device_id()` handles the transition: it finds the old device entry in the device registry and renames its identifier in place if no new entry exists, or carries over the area/custom name and removes the old entry if a new one was already created by a prior restart. This runs on every startup and is idempotent.
+Since the gateway ID's format can change over time (host-based → lowercase MAC → uppercase MAC, in the order the integration has evolved) — and the host-based fallback itself can drift across restarts if MAC resolution keeps failing while DHCP reassigns the IP — `_migrate_gateway_device_id()` handles the transition. Rather than guessing at specific old id strings (which would miss that drift), it identifies the old device *structurally*: for a given config entry there is exactly one device with no `via_device` (the root of the gateway/controller/thermostat hierarchy), whatever identifier it currently happens to hold. It renames that device's identifier in place if no device already exists under the new identifier, or carries over the area/custom name and removes the old device if one does (created by a prior restart before this reconciliation ran). This runs on every startup and is idempotent.
+
+### Device registration ordering — [__init__.py](custom_components/uponorx265/__init__.py)
+Thermostat and controller entities declare a `via_device` pointing at their parent (controller, then gateway) in their `device_info`. Historically the parent device only ever got created as a side effect of a specific entity — a controller status sensor, gated behind the optional `CONF_CREATE_CONTROLLERS` — which lives in the `SENSOR` platform, loaded *after* `CLIMATE` and `SWITCH` in `PLATFORMS`. HA would log a `via_device` referencing a non-existing device warning and eventually stop honoring it, and if the controller sensor was disabled the parent device was never created at all.
+
+`_register_gateway_devices()` fixes this by registering the gateway and controller devices explicitly in `async_setup_entry`, before `async_forward_entry_setups()` is called — so the parent always exists regardless of platform order or which optional entities are enabled. It falls back to `get_cached_controllers()` (mirroring `get_cached_thermostats()`) when live data isn't loaded yet, e.g. on a warm restart where `async_update()` runs as a background task instead of being awaited.
+
+### Setpoint storage & restore-on-off — [__init__.py](custom_components/uponorx265/__init__.py) / [climate.py](custom_components/uponorx265/climate.py)
+The integration has no real on/off register — "off" is encoded as `setpoint == min_temp` (or `max_temp` in cool mode). The `.storage` file's per-thermostat setpoint memo is therefore the only thing that can restore a room to its pre-off temperature, which makes its read-modify-write path load-bearing:
+
+- **`self._storage_lock`** (`asyncio.Lock`) serialises every read-modify-write against `_storage_data`: `async_turn_off()`, `async_remember_setpoint()`, and the metadata-refresh save in `_async_persist_discovery_metadata()` all take it. Without this, HA turning off several thermostats in one service call runs those coroutines concurrently; each would load its own fresh copy of the storage dict, mutate only its own key, and save — last writer wins, silently discarding every other room's memo.
+- **`async_turn_off()`** never memorises the off value (`min_temp`/`max_temp`) itself as the restore target — doing so would permanently strand the room off, since `async_turn_on()` would just write the off value straight back. **`async_turn_on()`** also treats a previously-poisoned memo (one that does equal the off value, e.g. left over from before this fix) as "no memo" and falls back to `DEFAULT_TEMP` instead of restoring it.
+- **`async_remember_setpoint()`** backs `UponorClimate.async_set_temperature()` when the room is off: rather than silently discarding the request (the old behavior) or writing the live setpoint through (which would silently turn the room back on, violating `hvac_mode: off`), it records the requested temperature in storage so the next `turn_on` restores exactly what was asked for.
 
 ### Entity base — [helper.py](custom_components/uponorx265/helper.py)
 Three base classes build a device hierarchy in HA:
@@ -55,6 +68,33 @@ One file per HA domain; each reads `hass.data[unique_id]` for the state_proxy + 
 | [config_flow.py](custom_components/uponorx265/config_flow.py) | Setup wizard + options flow (host, controller names, room names, feature toggles) |
 
 ---
+
+## Testing
+
+A `pytest` suite lives under [tests/](tests/), using `pytest-homeassistant-custom-component` for a real (in-memory) `hass` instance — the JNAP client is always mocked, no real network calls are made. Run with:
+
+```
+pip install -r requirements_test.txt
+pytest tests/ -v
+```
+
+`tests/helpers.py` provides `make_state_proxy()`, which builds a `UponorStateProxy` backed by a mocked `UponorJnap` client and a `hass`-backed `Store`, and `thermostat_data()` for constructing raw `_data` entries at a given setpoint/limits.
+
+The suite is weighted towards regression coverage for bugs found during review rather than exhaustive coverage of the whole integration:
+
+| File | Covers |
+|---|---|
+| [test_turn_off_storage_race.py](tests/test_turn_off_storage_race.py) | The storage lock — concurrent `async_turn_off()` calls must not lose each other's memo |
+| [test_poisoned_memo.py](tests/test_poisoned_memo.py) | The off value is never memorised as a restore target, and a poisoned memo self-heals on `turn_on` |
+| [test_set_temperature_while_off.py](tests/test_set_temperature_while_off.py) | `set_temperature` on an off room is remembered, not silently discarded |
+| [test_device_registration.py](tests/test_device_registration.py) | Gateway/controller devices exist before platform setup, regardless of `CONF_CREATE_CONTROLLERS` |
+| [test_gateway_device_migration.py](tests/test_gateway_device_migration.py) | The gateway device migration finds the old device structurally, including after host-id drift |
+| [test_bypass_max_two.py](tests/test_bypass_max_two.py) | The max-2-bypass-zones-per-controller business rule, and that it's per-controller not global |
+| [test_thermostat_model_detection.py](tests/test_thermostat_model_detection.py) | The `hwid`/serial-prefix model detection heuristic and its cache fallback |
+
+Note on the storage-race test specifically: `pytest-homeassistant-custom-component`'s mocked `Store.async_save` never actually suspends (no executor read, no disk write), so without an explicit forced yield point (`asyncio.sleep(0)` injected into the mock) the test can pass "by accident" on platforms/schedulers where the mocked coroutines happen to run to completion sequentially anyway — masking a regression instead of catching it. The injected yield point makes the test deterministic regardless of platform.
+
+Windows-specific: `tests/conftest.py` neutralises `pytest_socket.disable_socket()`, which `pytest-homeassistant-custom-component` calls unconditionally before every test. On Windows, asyncio's event loop needs a real socketpair for its internal self-pipe, so blocking all sockets breaks fixture setup before any test code runs; since no test here makes real network calls anyway, this is safe to disable rather than fight.
 
 ## Functionality
 
