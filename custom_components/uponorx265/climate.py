@@ -3,7 +3,6 @@ import logging
 from homeassistant.components.climate import ClimateEntity
 from homeassistant.core import callback
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from homeassistant.const import (
     ATTR_TEMPERATURE,
@@ -20,8 +19,6 @@ from homeassistant.components.climate.const import (
 )
 
 from .const import (
-    SIGNAL_UPONOR_STATE_UPDATE,
-    DEVICE_MANUFACTURER,
     PRESET_MANUAL,
 )
 from .helper import get_unique_id_from_config_entry, UponorThermostatEntity
@@ -57,12 +54,11 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
         self._is_on = True
         self._update_power_state()
         self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_climate"
-        # The 'HA controlled' preset (local override) only exists on
-        # T-144/T-145 dial thermostats.
-        self._requires_local_override = state_proxy.requires_local_override(thermostat)
-        self._attr_preset_modes = [PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
-        if self._requires_local_override:
-            self._attr_preset_modes.append(PRESET_MANUAL)
+
+    def _requires_local_override(self):
+        # Evaluated dynamically: model may only become known after the first
+        # live update (cache-based startup), so HA-controlled must appear then.
+        return self._state_proxy.requires_local_override(self._thermostat)
 
     def _update_power_state(self):
         temp_raw = self._state_proxy.get_setpoint_raw(self._thermostat)
@@ -115,10 +111,17 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
             'pulse_width_modulation': self._state_proxy.get_pwm(self._thermostat),
             'eco_setback': self._state_proxy.get_eco_setback(self._thermostat),
         }
+
+    @property
+    def preset_modes(self):
+        modes = [PRESET_COMFORT, PRESET_ECO, PRESET_AWAY]
+        if self._requires_local_override():
+            modes.append(PRESET_MANUAL)
+        return modes
     
     @property
     def preset_mode(self):
-        if self._requires_local_override and self._state_proxy.get_local_override(self._thermostat):
+        if self._requires_local_override() and self._state_proxy.get_local_override(self._thermostat):
             return PRESET_MANUAL
         if self._state_proxy.is_away():
             return PRESET_AWAY
@@ -169,7 +172,7 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
             await self._state_proxy.async_set_preset_mode(preset_mode)
 
     async def async_set_temperature(self, **kwargs):
-        if (self._requires_local_override
+        if (self._requires_local_override()
                 and not self._state_proxy.get_local_override(self._thermostat)):
             self.hass.async_create_task(self._state_proxy.async_update())
             raise ServiceValidationError(
@@ -178,5 +181,11 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
                 translation_placeholders={"room_name": self._room_name},
             )
         temp = kwargs.get(ATTR_TEMPERATURE)
-        if temp is not None and self._is_on:
+        if temp is None:
+            return
+        if self._is_on:
             await self._state_proxy.async_set_target_temperature(self._thermostat, temp)
+        else:
+            # Room is off (setpoint == min/max): record the requested target so
+            # turn_on restores it instead of silently discarding the write.
+            await self._state_proxy.async_remember_setpoint(self._thermostat, temp)
