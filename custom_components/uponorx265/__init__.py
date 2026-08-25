@@ -231,51 +231,6 @@ def _remove_unsupported_local_override_entities(hass: HomeAssistant, config_entr
             ent_reg.async_remove(entry.entity_id)
 
 
-def _ensure_parent_devices(hass: HomeAssistant, config_entry: ConfigEntry, unique_id: str, state_proxy) -> None:
-    """Register gateway and controller devices before platforms set up entities.
-
-    Climate/switch platforms declare via_device pointing at the controller, but
-    they load before SENSOR (which historically created the controller device).
-    Registering parents here avoids HA warnings and works even when optional
-    controller sensors are disabled.
-    """
-    dev_reg = device_registry.async_get(hass)
-    gateway_id = state_proxy.get_gateway_id()
-    if gateway_id:
-        dev_reg.async_get_or_create(
-            config_entry_id=config_entry.entry_id,
-            identifiers={(unique_id, gateway_id)},
-            manufacturer=DEVICE_MANUFACTURER,
-            name=state_proxy.get_integration_name(),
-            model=state_proxy.get_model(),
-        )
-
-    controllers = state_proxy.get_active_controllers()
-    if not controllers:
-        controllers = state_proxy._storage_metadata.get("controllers", [])
-
-    for controller in controllers:
-        controller_id = state_proxy.get_controller_id(controller)
-        if not controller_id:
-            continue
-        info = {
-            "config_entry_id": config_entry.entry_id,
-            "identifiers": {(unique_id, controller_id)},
-            "manufacturer": DEVICE_MANUFACTURER,
-            "name": state_proxy.get_controller_name(controller),
-            "serial_number": controller_id,
-        }
-        if gateway_id:
-            info["via_device"] = (unique_id, gateway_id)
-        model = state_proxy.get_controller_hardware(controller)
-        if model:
-            info["model"] = model
-        sw_version = state_proxy.get_controller_version(controller)
-        if sw_version:
-            info["sw_version"] = sw_version
-        dev_reg.async_get_or_create(**info)
-
-
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     # Sync options to data if they differ
     if config_entry.options:
@@ -298,19 +253,11 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     await state_proxy.async_load_storage()
 
     thermostats = state_proxy.get_cached_thermostats()
-    cached_models = state_proxy._storage_metadata.get("models", {})
-    # HA-control switches/presets are gated on detected model. If any cached
-    # thermostat lacks a model (upgrade, new unit, incomplete prior dump),
-    # wait for a live update before platforms set up — otherwise dial units
-    # such as sn 2688 (T-145) miss the LocalOverride switch until a reload.
-    models_complete = bool(thermostats) and all(
-        thermostat in cached_models for thermostat in thermostats
-    )
-    if thermostats and models_complete:
+    if thermostats:
         hass.async_create_task(state_proxy.async_update())
     else:
         await state_proxy.async_update()
-        thermostats = state_proxy.get_active_thermostats() or thermostats
+        thermostats = state_proxy.get_active_thermostats()
 
     # Must run before platform setup: device_info reads get_gateway_id(),
     # which otherwise falls back to a host-based id for the entire session.
@@ -344,10 +291,6 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     # Must run before platform setup so HA matches existing registry entries
     # to the new unique_ids instead of creating duplicate entities.
     _migrate_entity_unique_ids(hass, config_entry, unique_id)
-
-    # Register gateway/controller devices before climate/switch so via_device
-    # targets already exist (platforms load CLIMATE before SENSOR).
-    _ensure_parent_devices(hass, config_entry, unique_id, state_proxy)
 
     # Forward setup for "climate" and "switch" platforms (done outside of the event loop)
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
@@ -498,9 +441,6 @@ class UponorStateProxy:
         self._last_successful_update = None
         self._unavailable_since = None
         self._update_lock = asyncio.Lock()
-        # Serialises load→mutate→save of setpoint memos so concurrent
-        # multi-room turn_off/remember calls cannot clobber each other.
-        self._storage_lock = asyncio.Lock()
         self._reload_in_progress = False
         self._last_reload_attempt = None
         self._gateway_id = None
@@ -543,14 +483,16 @@ class UponorStateProxy:
             sn = controller_id[:4]
             prodk = sn[:3]
             mod = sn[-1:]
-            _LOGGER.debug(f"id {hwid} s/n start {sn}")
-            if prodk == "419":
-                if mod == "5":
-                    # Smatrix Base Pulse
-                    return "X-245"
-                if mod == "4":
-                    # Smatrix Wave Pulse (field-confirmed sn prefix 4194)
-                    return "X-265"
+            _LOGGER.debug(f"id {hwid} s/n start {sn}")            
+            if prodk=="419":
+                if mod=="5":
+# Smartix Base Pulse
+                    return("X-245")
+# Smatrix Wave Pulse
+#                   return("X-265")
+# Smatrix Base PRO
+#                   return("X-147")
+# Modbus RTU model  return("X-147")
             # The raw hardware type is a device class, not a model id -
             # report no model rather than a misleading number.
             return None
@@ -810,9 +752,8 @@ class UponorStateProxy:
         }
 
         if new_metadata != self._storage_metadata:
-            async with self._storage_lock:
-                self._storage_metadata = new_metadata
-                await self._store.async_save(self._compose_storage_payload())
+            self._storage_metadata = new_metadata
+            await self._store.async_save(self._compose_storage_payload())
 
     # -------------------------------------------------------------------------
     # Thermostat config
@@ -1023,15 +964,7 @@ class UponorStateProxy:
         return int(self._data[var]) * mode
 
     def requires_local_override(self, thermostat):
-        model = self.get_thermostat_model(thermostat)
-        if model is not None:
-            return model in DIAL_THERMOSTAT_MODELS
-        # Model unknown (cache-only startup before first detection): treat
-        # known dial-family serial prefixes as needing HA-control so the
-        # switch/preset are created. 268/269 are field-confirmed for T-144/T-145
-        # (issue #29: sn 2688 was missing HA-control).
-        sn = str(self.get_thermostat_id(thermostat))[:4]
-        return sn[:3] in ("268", "269")
+        return self.get_thermostat_model(thermostat) in DIAL_THERMOSTAT_MODELS
 
     def get_local_override(self, thermostat):
         var = thermostat + '_pub_setpoint_override'
@@ -1111,38 +1044,17 @@ class UponorStateProxy:
         self._data['sys_heat_cool_mode'] = '0'
         self._hass.async_create_task(self.call_state_update())
 
-    def _off_temperature(self, thermostat):
-        """Temperature used to encode HVAC off (no dedicated off register)."""
-        return self.get_max_limit(thermostat) if self.is_cool_enabled() else self.get_min_limit(thermostat)
-
     async def async_turn_on(self, thermostat):
-        off_temp = self._off_temperature(thermostat)
-        async with self._storage_lock:
-            await self.async_load_storage()
-            last_temp = self._storage_data.get(thermostat, DEFAULT_TEMP)
-            # A memo poisoned with the off value must not strand the room.
-            if last_temp == off_temp:
-                last_temp = DEFAULT_TEMP
+        await self.async_load_storage()
+        last_temp = self._storage_data.get(thermostat, DEFAULT_TEMP)
         await self.async_set_setpoint(thermostat, last_temp)
 
     async def async_turn_off(self, thermostat):
-        off_temp = self._off_temperature(thermostat)
-        current = self.get_setpoint(thermostat)
-        async with self._storage_lock:
-            await self.async_load_storage()
-            # Never record the off value as the restore target (issue #33 B).
-            if current is not None and current != off_temp:
-                self._storage_data[thermostat] = current
-                await self._store.async_save(self._compose_storage_payload())
+        await self.async_load_storage()
+        self._storage_data[thermostat] = self.get_setpoint(thermostat)
+        await self._store.async_save(self._compose_storage_payload())
+        off_temp = self.get_max_limit(thermostat) if self.is_cool_enabled() else self.get_min_limit(thermostat)
         await self.async_set_setpoint(thermostat, off_temp)
-
-    async def async_remember_setpoint(self, thermostat, temp):
-        """Record a target requested while the room is off, so turn_on restores it."""
-        async with self._storage_lock:
-            await self.async_load_storage()
-            self._storage_data[thermostat] = temp
-            await self._store.async_save(self._compose_storage_payload())
-        self._hass.async_create_task(self.call_state_update())
 
     async def async_set_preset_mode(self, preset_mode):
         if preset_mode in (PRESET_AWAY, PRESET_ECO):
