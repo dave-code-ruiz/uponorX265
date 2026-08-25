@@ -1,0 +1,3 @@
+pytest-homeassistant-custom-component
+pytest-asyncio
+tzdata; sys_platform == "win32"

@@ -159,19 +159,22 @@ def _migrate_entity_unique_ids(hass: HomeAssistant, config_entry: ConfigEntry, u
                 entry.entity_id, entry.unique_id, exc,
             )
 
-def _migrate_gateway_device_id(hass: HomeAssistant, unique_instance_id: str, host: str, new_gateway_id: str) -> None:
+def _migrate_gateway_device_id(hass: HomeAssistant, config_entry: ConfigEntry, unique_instance_id: str, new_gateway_id: str) -> None:
     """Reconcile the gateway device's identifier with a newly-resolved MAC.
 
-    Historical identifier formats for the gateway device, in order:
-    - host-based (host with dots stripped) — used before MAC resolution was wired up
-    - lowercase MAC (no separators) — used before the id was uppercased
-    Any of these may still be registered as the gateway device's identifier.
-    Once resolution lands on the current format, entities switch to it and
-    Home Assistant would otherwise create a *new* device for them, leaving
-    the old one orphaned (no entities). This merges them: rename in place if
-    only an old-format device exists, or drop the orphaned old one (after
-    copying over any user customization) if a new device already exists from
-    a prior restart.
+    The gateway device's identifier has changed format over time (host-based
+    with dots stripped -> lowercase MAC -> uppercase MAC), and the host-based
+    fallback itself can drift across restarts (DHCP reassigning the IP while
+    MAC resolution keeps failing, e.g. gateway and HA host on different
+    subnets — see the "Gateway ID" section of ARCHITECTURE.md). Guessing at
+    specific old id strings would miss that drift and leave a fresh orphaned
+    device behind on every IP change. Instead, this identifies the gateway
+    device structurally: for a given config entry there is exactly one
+    device with no via_device (the root of the gateway/controller/thermostat
+    hierarchy) — whatever identifier it currently holds, that's the old
+    gateway device to reconcile. Renames it in place if no device already
+    exists under the new identifier, or drops it (after copying over any
+    user customization) if one does.
     """
     if new_gateway_id is None:
         return
@@ -180,37 +183,70 @@ def _migrate_gateway_device_id(hass: HomeAssistant, unique_instance_id: str, hos
     new_identifier = (unique_instance_id, new_gateway_id)
     new_device = dev_reg.async_get_device(identifiers={new_identifier})
 
-    old_candidate_ids = {host.replace('.', ''), new_gateway_id.lower()} - {new_gateway_id}
-    for old_gateway_id in old_candidate_ids:
-        old_identifier = (unique_instance_id, old_gateway_id)
-        old_device = dev_reg.async_get_device(identifiers={old_identifier})
-        if old_device is None:
-            continue
+    old_device = next(
+        (
+            device
+            for device in device_registry.async_entries_for_config_entry(dev_reg, config_entry.entry_id)
+            if device.via_device_id is None and new_identifier not in device.identifiers
+        ),
+        None,
+    )
+    if old_device is None:
+        return
 
-        if new_device is None:
-            # First time resolving to this format: rename the existing device in place.
-            updated_identifiers = {
-                new_identifier if i == old_identifier else i for i in old_device.identifiers
-            }
-            dev_reg.async_update_device(old_device.id, new_identifiers=updated_identifiers)
-            _LOGGER.info(
-                "Migrated gateway device identifier for %s: '%s' -> '%s'",
-                unique_instance_id, old_gateway_id, new_gateway_id,
-            )
-            new_device = dev_reg.async_get_device(identifiers={new_identifier})
-            continue
-
-        # A new device already exists (created by a prior restart before this
-        # migration existed). Carry over any user customization, then drop the
-        # now-empty old device.
-        if old_device.area_id and not new_device.area_id:
-            dev_reg.async_update_device(new_device.id, area_id=old_device.area_id)
-        if old_device.name_by_user and not new_device.name_by_user:
-            dev_reg.async_update_device(new_device.id, name_by_user=old_device.name_by_user)
-        dev_reg.async_remove_device(old_device.id)
+    if new_device is None:
+        # First time resolving to this identifier: rename the existing device in place.
+        dev_reg.async_update_device(old_device.id, new_identifiers={new_identifier})
         _LOGGER.info(
-            "Removed orphaned gateway device '%s' (%s) for %s, superseded by '%s'",
-            old_gateway_id, old_device.id, unique_instance_id, new_gateway_id,
+            "Migrated gateway device identifier for %s to '%s'",
+            unique_instance_id, new_gateway_id,
+        )
+        return
+
+    # A new device already exists (created by a prior restart). Carry over
+    # any user customization, then drop the now-orphaned old device.
+    if old_device.area_id and not new_device.area_id:
+        dev_reg.async_update_device(new_device.id, area_id=old_device.area_id)
+    if old_device.name_by_user and not new_device.name_by_user:
+        dev_reg.async_update_device(new_device.id, name_by_user=old_device.name_by_user)
+    dev_reg.async_remove_device(old_device.id)
+    _LOGGER.info(
+        "Removed orphaned gateway device (%s) for %s, superseded by '%s'",
+        old_device.id, unique_instance_id, new_gateway_id,
+    )
+
+
+def _register_gateway_devices(hass: HomeAssistant, config_entry: ConfigEntry, unique_instance_id: str, state_proxy) -> None:
+    """Explicitly register the gateway and controller devices before platform setup.
+
+    Thermostat/controller entities declare a `via_device` pointing at their
+    parent, but the parent device is otherwise only created as a side effect
+    of a specific entity (a controller sensor, gated behind
+    CONF_CREATE_CONTROLLERS) which may load after — or never, if that entity
+    is disabled. Registering the devices up front guarantees the parent
+    always exists regardless of platform order or which optional entities
+    are enabled.
+    """
+    dev_reg = device_registry.async_get(hass)
+    dev_reg.async_get_or_create(
+        config_entry_id=config_entry.entry_id,
+        identifiers={(unique_instance_id, state_proxy.get_gateway_id())},
+        manufacturer=DEVICE_MANUFACTURER,
+        name=state_proxy.get_integration_name(),
+        model=state_proxy.get_model(),
+        serial_number=state_proxy.get_gateway_id(),
+    )
+    controllers = state_proxy.get_active_controllers() or state_proxy.get_cached_controllers()
+    for controller in controllers:
+        dev_reg.async_get_or_create(
+            config_entry_id=config_entry.entry_id,
+            identifiers={(unique_instance_id, state_proxy.get_controller_id(controller))},
+            manufacturer=DEVICE_MANUFACTURER,
+            name=state_proxy.get_controller_name(controller),
+            model=state_proxy.get_controller_hardware(controller),
+            sw_version=state_proxy.get_controller_version(controller),
+            serial_number=state_proxy.get_controller_id(controller),
+            via_device=(unique_instance_id, state_proxy.get_gateway_id()),
         )
 
 
@@ -262,7 +298,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     # Must run before platform setup: device_info reads get_gateway_id(),
     # which otherwise falls back to a host-based id for the entire session.
     resolved_gateway_id = await state_proxy.async_resolve_gateway_id()
-    _migrate_gateway_device_id(hass, unique_id, host, resolved_gateway_id)
+    _migrate_gateway_device_id(hass, config_entry, unique_id, resolved_gateway_id)
 
     hass.data[unique_id] = {
         "state_proxy": state_proxy,
@@ -291,6 +327,11 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     # Must run before platform setup so HA matches existing registry entries
     # to the new unique_ids instead of creating duplicate entities.
     _migrate_entity_unique_ids(hass, config_entry, unique_id)
+
+    # Register gateway/controller devices before platform setup: CLIMATE and
+    # SWITCH load before SENSOR, and their entities' via_device would
+    # otherwise reference a controller device that doesn't exist yet.
+    _register_gateway_devices(hass, config_entry, unique_id, state_proxy)
 
     # Forward setup for "climate" and "switch" platforms (done outside of the event loop)
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
@@ -441,6 +482,7 @@ class UponorStateProxy:
         self._last_successful_update = None
         self._unavailable_since = None
         self._update_lock = asyncio.Lock()
+        self._storage_lock = asyncio.Lock()
         self._reload_in_progress = False
         self._last_reload_attempt = None
         self._gateway_id = None
@@ -671,6 +713,13 @@ class UponorStateProxy:
             return thermostats
         return []
 
+    def get_cached_controllers(self):
+        controllers = self._storage_metadata.get("controllers", [])
+        ids = self._storage_metadata.get("controller_ids", {})
+        if isinstance(controllers, list) and controllers and all(ids.get(controller) for controller in controllers):
+            return controllers
+        return []
+
     def is_available(self):
         return self._last_successful_update is not None and dt_util.now() - self._last_successful_update <= UNAVAILABLE_THRESHOLD
 
@@ -753,7 +802,8 @@ class UponorStateProxy:
 
         if new_metadata != self._storage_metadata:
             self._storage_metadata = new_metadata
-            await self._store.async_save(self._compose_storage_payload())
+            async with self._storage_lock:
+                await self._store.async_save(self._compose_storage_payload())
 
     # -------------------------------------------------------------------------
     # Thermostat config
@@ -1046,15 +1096,31 @@ class UponorStateProxy:
 
     async def async_turn_on(self, thermostat):
         await self.async_load_storage()
+        off_temp = self.get_max_limit(thermostat) if self.is_cool_enabled() else self.get_min_limit(thermostat)
         last_temp = self._storage_data.get(thermostat, DEFAULT_TEMP)
+        if last_temp == off_temp:
+            # A poisoned memo (recorded while already at the off value) must
+            # not strand the room off forever.
+            last_temp = DEFAULT_TEMP
         await self.async_set_setpoint(thermostat, last_temp)
 
     async def async_turn_off(self, thermostat):
-        await self.async_load_storage()
-        self._storage_data[thermostat] = self.get_setpoint(thermostat)
-        await self._store.async_save(self._compose_storage_payload())
         off_temp = self.get_max_limit(thermostat) if self.is_cool_enabled() else self.get_min_limit(thermostat)
+        current = self.get_setpoint(thermostat)
+        async with self._storage_lock:
+            await self.async_load_storage()
+            if current != off_temp:
+                # Don't record the off value itself as the restore target.
+                self._storage_data[thermostat] = current
+                await self._store.async_save(self._compose_storage_payload())
         await self.async_set_setpoint(thermostat, off_temp)
+
+    async def async_remember_setpoint(self, thermostat, temp):
+        """Record a target temperature requested while the room is off, so turn_on restores it."""
+        async with self._storage_lock:
+            await self.async_load_storage()
+            self._storage_data[thermostat] = temp
+            await self._store.async_save(self._compose_storage_payload())
 
     async def async_set_preset_mode(self, preset_mode):
         if preset_mode in (PRESET_AWAY, PRESET_ECO):

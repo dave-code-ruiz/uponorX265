@@ -178,5 +178,11 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
                 translation_placeholders={"room_name": self._room_name},
             )
         temp = kwargs.get(ATTR_TEMPERATURE)
-        if temp is not None and self._is_on:
+        if temp is None:
+            return
+        if self._is_on:
             await self._state_proxy.async_set_target_temperature(self._thermostat, temp)
+        else:
+            # Room is off: remember the requested target so turn_on restores
+            # it, without turning the room back on.
+            await self._state_proxy.async_remember_setpoint(self._thermostat, temp)
