@@ -224,7 +224,7 @@ cust_Controller1_Name: nere
 cust_wifi_device: ethernet
 cust_ip_device: 10.x.x.x
 cust_Enable_SW_Update: '1'
-cust_C1_T1_name: Renee lekrum
+cust_C1_T1_name: Lekrum
 cust_C1_T2_name: Hallen
 cust_C1_T3_name: Tv rum
 cust_C1_T4_name: Gammla Kontor
@@ -236,10 +236,10 @@ cust_Enable_Low_Temp_Alarm: '0'
 cust_Low_temperature_Hyst: '90'
 cust_SW_version_update: X245_122.hex
 cust_Succesfull_SW_Instal: '1'
-cust_C2_T1_name: Emmas gammla
-cust_C2_T2_name: Sovrum R&F
+cust_C2_T1_name: Gammla rummet
+cust_C2_T2_name: Sovrum 1
 cust_Controller2_Name: uppe
-cust_C2_T3_name: Sovrum olivia
+cust_C2_T3_name: Sovrum 2
 cust_C2_T4_name: Allrum
 cust_C2_T5_name: Kontor
 cust_C2_T6_name: Badrum uppe
