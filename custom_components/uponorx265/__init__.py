@@ -61,6 +61,10 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.CLIMATE, Platform.SWITCH, Platform.SENSOR, Platform.BINARY_SENSOR, Platform.SELECT]
 
+# Registered once for the domain rather than per config entry, so they have to
+# be removed once the last entry goes - see async_unload_entry.
+DOMAIN_SERVICES = ("set_variable", "dump_hardware_info", "dump_raw_data")
+
 SET_VARIABLE_SCHEMA = vol.Schema(
     {
         vol.Required("var_name"): str,
@@ -348,10 +352,9 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 async def async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Update options."""
     _LOGGER.debug("Update setup entry: %s, data: %s, options: %s", entry.entry_id, entry.data, entry.options)
-    # Unload first to ensure clean state (if loaded), then reload
-    # This handles the case where setup may have failed initially
-    if entry.state in (ConfigEntryState.LOADED, ConfigEntryState.SETUP_RETRY):
-        await hass.config_entries.async_unload(entry.entry_id)
+    # async_reload() unloads first when the entry is loaded, and sets up
+    # cleanly when it is not (including after a failed initial setup), so an
+    # explicit unload here only tears the entry down twice.
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -363,6 +366,21 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
     )
     if unload_ok:
         hass.data.pop(get_unique_id_from_config_entry(config_entry), None)
+
+        # The services are registered on the domain, not on the entry, so
+        # unloading the last entry has to take them with it. Left behind, they
+        # stay callable with handlers that resolve to no state proxies and
+        # return silently. This entry may still report LOADED while its own
+        # unload is in flight, hence <= 1 rather than == 0.
+        loaded_entries = [
+            entry
+            for entry in hass.config_entries.async_entries(DOMAIN)
+            if entry.state is ConfigEntryState.LOADED
+        ]
+        if len(loaded_entries) <= 1:
+            for service in DOMAIN_SERVICES:
+                hass.services.async_remove(DOMAIN, service)
+
     return unload_ok
 
 

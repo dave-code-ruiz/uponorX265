@@ -66,11 +66,12 @@ def _get_mac_with_arp_refresh(host: str):
     interface, so the ARP cache may never get populated; send() forces it.
     """
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(1)
-        sock.connect((host, 80))
-        sock.send(b'\x00')
-        sock.close()
+        # Context-managed so the socket is also closed when connect()
+        # or send() raises, instead of being left to the collector.
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(1)
+            sock.connect((host, 80))
+            sock.send(b'\x00')
         time.sleep(0.2)
         _LOGGER.debug("ARP-priming socket to %s sent successfully", host)
     except Exception as exc:
