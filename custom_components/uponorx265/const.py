@@ -35,6 +35,50 @@ PRESET_MANUAL = 'ha_controlled'
 # is enabled; all other models accept them directly.
 DIAL_THERMOSTAT_MODELS = ("T-144", "T-145")
 
+# Product series. Smatrix Wave Pulse is wireless and built on the X-265
+# controller; Smatrix Base Pulse is a wired bus on the X-245. The two run
+# parallel thermostat ranges (T-146<->T-166, T-148<->T-168, T-149<->T-169)
+# that report identical values for everything except the hardware type, so
+# the series has to be resolved before a thermostat can be identified.
+SERIES_WAVE = "wave"
+SERIES_BASE = "base"
+
+# The controller firmware image name (cust_SW_version_update, e.g.
+# "X265_121.hex") states the controller model outright. This is a read, not
+# an inference, so it is tried first.
+CONTROLLER_FIRMWARE_SERIES = {
+    "X265": SERIES_WAVE,
+    "X245": SERIES_BASE,
+}
+
+# Fallback: the controller's own hardware type register. Agrees with the
+# firmware image name on every system observed.
+CONTROLLER_HARDWARE_SERIES = {
+    "1": SERIES_WAVE,
+    "0": SERIES_BASE,
+}
+
+SERIES_CONTROLLER_MODELS = {
+    SERIES_WAVE: "X-265",
+    SERIES_BASE: "X-245",
+}
+
+# (series, C?_T?_hw_type) -> thermostat model.
+#
+# Derived from field data, not from Uponor documentation - no public source
+# maps these codes. Every entry below is backed by a system whose models were
+# confirmed by its owner. Codes that are absent resolve to None rather than to
+# a guess: an unknown model is better than a wrong one (issue #36).
+#
+# Deliberately NOT keyed on humidity or floor-temperature readings. Those
+# report what a unit is currently sensing, not what it is capable of - a
+# T-146 with no RH sensor and a T-169 sitting at 0% RH are indistinguishable
+# that way.
+THERMOSTAT_MODELS = {
+    (SERIES_WAVE, "7"): "T-169",
+    (SERIES_BASE, "3"): "T-146",
+}
+
 CONF_CREATE_CONTROLLERS = "create_controllers"
 CONF_SENSOR_TEMP = "sensor_temperature"
 CONF_BINARY_SENSOR_VALVE = "binary_sensor_valve"

@@ -48,7 +48,12 @@ from .const import (
     DEFAULT_TEMP,
     DEVICE_MANUFACTURER,
     DIAL_THERMOSTAT_MODELS,
-    FLAG_DEFAULTS
+    FLAG_DEFAULTS,
+    CONTROLLER_FIRMWARE_SERIES,
+    CONTROLLER_HARDWARE_SERIES,
+    SERIES_CONTROLLER_MODELS,
+    SERIES_WAVE,
+    THERMOSTAT_MODELS
 )
 from .jnap import UponorJnap
 from .helper import get_unique_id_from_config_entry, _get_mac_with_arp_refresh 
@@ -614,29 +619,36 @@ class UponorStateProxy:
             return STATUS_ERROR_GENERAL
         return STATUS_OK
         
+    def get_product_series(self, controller=None):
+        """Resolve Smatrix Wave Pulse vs Base Pulse for this system.
+
+        The controller firmware image name states the model outright
+        ("X265_121.hex" / "X245_122.hex"), so that is read first. Failing
+        that, the controller's own hardware type register carries the same
+        distinction. The serial number does NOT: prefix 4194 has been seen on
+        both Wave and Base controllers.
+        """
+        firmware = self._data.get('cust_SW_version_update')
+        if firmware:
+            series = CONTROLLER_FIRMWARE_SERIES.get(firmware.split('_')[0].upper())
+            if series is not None:
+                return series
+
+        candidates = [controller] if controller is not None else self.get_active_controllers()
+        for candidate in candidates:
+            raw_type = self._data.get(str(candidate) + '_hardware_type')
+            if raw_type is not None:
+                series = CONTROLLER_HARDWARE_SERIES.get(str(raw_type))
+                if series is not None:
+                    return series
+        return None
+
     def get_controller_hardware(self, controller):
-        var = controller + '_hardware_type'
-        if var in self._data:
-            hwid = int(self._data[var])
-            controller_id = self.get_controller_id(controller)
-            if controller_id is None:
-                return None
-            sn = controller_id[:4]
-            prodk = sn[:3]
-            mod = sn[-1:]
-            _LOGGER.debug(f"id {hwid} s/n start {sn}")            
-            if prodk=="419":
-                if mod=="5":
-# Smartix Base Pulse
-                    return("X-245")
-# Smatrix Wave Pulse
-#                   return("X-265")
-# Smatrix Base PRO
-#                   return("X-147")
-# Modbus RTU model  return("X-147")
-            # The raw hardware type is a device class, not a model id -
-            # report no model rather than a misleading number.
+        """The controller's model: X-265 (Wave Pulse) or X-245 (Base Pulse)."""
+        series = self.get_product_series(controller)
+        if series is None:
             return None
+        return SERIES_CONTROLLER_MODELS.get(series)
 
     def get_controller_name(self, controller):
         configured_name = self._config_entry.data.get(controller.lower())
@@ -983,53 +995,60 @@ class UponorStateProxy:
         return self._storage_metadata.get("models", {}).get(thermostat)
 
     def _detect_thermostat_model(self, thermostat):
+        """Identify a thermostat from its hardware type within the product series.
+
+        The two Smatrix ranges run in parallel (T-146<->T-166, T-148<->T-168,
+        T-149<->T-169) and report the same `_thermostat_type`, so that value
+        alone cannot name a model - every `_thermostat_type == 2` unit used to
+        be reported as T-146, including the sixteen T-169s that prompted
+        issue #36. `_hw_type` does separate them once the series is known.
+
+        Reference ranges, from the product documentation:
+          Base Pulse (X-245): T-141 T-143 T-144 T-145 T-146 T-148 T-149
+          Wave Pulse (X-265): T-161 T-162 T-163 T-165 T-166 T-168 T-169
+
+        Only combinations actually observed on a system whose models were
+        confirmed by its owner appear in THERMOSTAT_MODELS. Anything else
+        returns None - the raw hardware type is a device class, not a model
+        id, and reporting no model beats reporting a wrong one.
+        """
         var = thermostat + '_thermostat_type'
         if var not in self._data:
             return None
         hwid = int(self._data[var])
-        sn = self.get_thermostat_id(thermostat)[:4]
-        prodk = sn[:3]
-        mod = sn[-1:]
-        
-        if hwid==0:
-            # T-144 and T-145 report the same hardware id, but looking at a
-            # number of T-144/T-145 units we had on hand, the serial number
-            # prefix appears usable for telling them apart.
-            # Every other hwid==0 unit defaults to T-145 — Uponor's own app
-            # seems to do the same when it can't tell either.
-            if prodk=="269":
-                if mod=="1":
-                    return ('T-144')
-                if mod=="2":
-                    return ('T-145')
-            if prodk=="268":
-                # sn 2688 — kept as a marker in case a pattern emerges once
-                # we have data from more thermostats; currently redundant
-                # with the T-145 fallback below.
-                return('T-145')
-            return('T-145')
-        if hwid==2:
-            # sn 2856
-            return('T-146')
-        _LOGGER.debug(f"id {hwid} s/n start {sn} rh_c {self.has_humidity_control(thermostat)} rh_s {self.has_humidity_sensor(thermostat)} pd {self.is_public_device(thermostat)} hft {self.has_floor_temperature(thermostat)} Sensor only {self.is_sensor_only(thermostat)}")
-# Smartix Base Pulse                   
-#                   return("T-141") #No temp adjustment/RH
-#                   return("T-143") #No temp adjustment/External temp/Tamper Alarm
-#                   return("T-144") #Nobb for temp/inwall mount same as T145
-#                   return("T-146") #Digital display/External temp
-#                   return("T-148") #Digital display/External temp/RH/TimeDate
-#                   return("T-149") #Digital display/External temp/RH 
-# Smatrix Wave Pulse
-#                   return("T-161") #No temp adjustment/RH
-#                   return("T-162") #Digital display/External temp                  
-#                   return("T-163") #No temp adjustment/External temp/Tamper Alarm
-#                   return("T-165") #Nobb for temp
-#                   return("T-166") #Digital display/External temp
-#                   return("T-168") #Digital display/External temp/RH/TimeDate
-#                   return("T-169") #Digital display/External temp/RH
-#                    return("T-247")
-        # The raw hardware type is a device class, not a model id -
-        # report no model rather than a misleading number.
+
+        if hwid == 0:
+            # The dial family. T-144 and T-145 report the same hardware id and
+            # the same _hw_type, so the serial prefix is still the only thing
+            # separating them. This rule is field-confirmed on Base units
+            # only; a Wave T-165 has never been observed, so it is left to
+            # fall through to the series/hw_type lookup below rather than
+            # being labelled from Base data.
+            sn = self.get_thermostat_id(thermostat)[:4]
+            prodk = sn[:3]
+            mod = sn[-1:]
+            if self.get_product_series(thermostat.split('_')[0]) != SERIES_WAVE:
+                if prodk == "269" and mod == "1":
+                    return 'T-144'
+                # Every other Base dial defaults to T-145 - Uponor's own app
+                # appears to do the same when it cannot tell either.
+                return 'T-145'
+
+        series = self.get_product_series(thermostat.split('_')[0])
+        hw_type = self._data.get(thermostat + '_hw_type')
+        if series is not None and hw_type is not None:
+            model = THERMOSTAT_MODELS.get((series, str(hw_type)))
+            if model is not None:
+                return model
+
+        _LOGGER.debug(
+            "Unrecognised thermostat %s: series=%s thermostat_type=%s hw_type=%s "
+            "sn_start=%s rh=%s floor=%s public=%s sensor_only=%s - reporting no "
+            "model. Please attach this line to a report so it can be mapped.",
+            thermostat, series, hwid, hw_type, self.get_thermostat_id(thermostat)[:4],
+            self.has_humidity_sensor(thermostat), self.has_floor_temperature(thermostat),
+            self.is_public_device(thermostat), self.is_sensor_only(thermostat),
+        )
         return None
 
     def get_model(self):

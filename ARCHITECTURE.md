@@ -1563,17 +1563,58 @@ The integration supports the **Uponor Smatrix Wave Pulse (X-265)** and **Uponor 
 
 ### Thermostat model identification
 
-The JNAP gateway doesn't expose the thermostat's model name directly — only a serial number (`C?_thermostatN_id`) and a raw hardware type code (`C?_T?_thermostat_type`). The integration guesses the model from these in [`_detect_thermostat_model()`](custom_components/uponorx265/__init__.py) (`__init__.py`):
+The Smatrix ranges run in parallel — Base Pulse (X-245) has T-141/143/144/145/146/148/149,
+Wave Pulse (X-265) has T-161/162/163/165/166/168/169 — and the paired models
+(T-146↔T-166, T-148↔T-168, T-149↔T-169) report the **same** `C?_T?_thermostat_type`. So that
+code alone can never name a model. Identification is therefore two steps: resolve the product
+series, then read the thermostat's own hardware type within it.
 
-- The hardware type code (`hwid`) is the first selection criterion:
-  - `hwid == 2` → **T-146** (field-confirmed on `sn` prefix `285`).
-  - `hwid == 0` → the T-144/T-145 family, which shares the same `hwid` and needs to be told apart via the serial number.
-- For `hwid == 0`, the serial number's first 4 digits (`sn`) are split into a prefix (`prodk`, first 3 digits) and a last digit (`mod`):
-  - **Known rule:** prefix `269` → last digit `1` = T-144, last digit `2` = T-145.
-  - **Catch-all:** every other `hwid == 0` unit (unknown prefix, or `269` with a different last digit) defaults to **T-145** — the same behavior Uponor's own app seems to have when it can't tell them apart either. Prefix `268` (field-confirmed, `sn "2688"`) is already covered by the catch-all but keeps its own branch as a marker, in case a pattern emerges once more thermostats report in.
-- If identification isn't possible at all (e.g. a missing `thermostat_type` variable), it falls back to the last cached model (`get_thermostat_model()`), and ultimately `None` — HA then shows no model for the device, but functionality is unaffected (only the `DIAL_THERMOSTAT_MODELS` gating, see `requires_local_override()`).
+**Step 1 — the series** (`get_product_series()`):
 
-This is reverse-engineering without access to Uponor's official serial number scheme — so there's no guarantee the `hwid`/prefix pattern holds for hardware we haven't seen yet. New hardware is logged via the `dump_hardware_info` service (`sn_start`, `hardware_type_raw`, `detected_model`) and can be submitted to refine the rules above.
+1. `cust_SW_version_update` is the controller's firmware image name and states the model
+   outright: `X265_121.hex` → Wave, `X245_122.hex` → Base. This is a read, not an inference,
+   so it is tried first.
+2. Failing that, `C?_hardware_type`: `1` → Wave, `0` → Base. Agrees with the firmware name on
+   every system observed.
+
+**Step 2 — the model** (`_detect_thermostat_model()`), keyed on `(series, C?_T?_hw_type)`:
+
+| series | `hw_type` | model | evidence |
+|---|---|---|---|
+| Wave | `7` | T-169 | owner-confirmed, [issue #36](https://github.com/dave-code-ruiz/uponorX265/issues/36) (16 units); second Wave system in `homey-uponor` `examples/output_3.json` |
+| Base | `3` | T-146 | `homey-uponor` `examples/output_1.json`; matches the owner-confirmed T-146 profile in [issue #29](https://github.com/dave-code-ruiz/uponorX265/issues/29) |
+
+`thermostat_type == 0` is the dial family. T-144 and T-145 share both `thermostat_type` and
+`hw_type`, so the serial number is still the only thing separating them: prefix `269` with last
+digit `1` = T-144, everything else on a **Base** system = T-145 (the same thing Uponor's own app
+appears to do when it cannot tell). That rule is field-confirmed on Base units only, so it is not
+applied to a Wave system — a Wave dial (T-165) has never been observed and reports no model
+rather than borrowing a Base label.
+
+**Anything not in the table returns `None`.** A device with no model shown is strictly better
+than one confidently mislabelled: before this, every `thermostat_type == 2` unit on every system
+was reported as T-146, including sixteen T-169s. Unrecognised units are logged at DEBUG with
+their full signature (series, `thermostat_type`, `hw_type`, serial prefix, capability flags) so
+they can be reported and mapped. `dump_hardware_info` exposes the same fields as a service
+response.
+
+> **These codes are not documented by Uponor.** The table is derived from field data across five
+> systems; no public source maps them. Two combinations are pinned by owner confirmation, and the
+> RH-bearing Base models (T-148/T-149) and the remaining Wave models (T-165/T-166/T-168) have
+> never been observed and are deliberately absent.
+
+Model detection is **not** keyed on humidity or floor-temperature readings. `has_humidity_sensor()`
+is `C?_T?_rh != 0` and `has_floor_temperature()` is `C?_T?_external_temperature != 32767` — both
+report what a unit is currently *sensing*, not what it is *capable of*. A T-146 with no RH sensor
+and a T-169 sitting at 0% RH are indistinguishable that way, and a floor sensor that simply is not
+wired reads identically to a model that cannot take one. They remain fine as heuristics for
+deciding which entities to create; they are not evidence of a model.
+
+**Controller model.** `get_controller_hardware()` returns X-265 or X-245 from the same series
+resolution. The controller serial prefix does *not* discriminate: `4194` has been observed on both
+Wave and Base controllers across four systems. Note also that the gateway device's model is
+`R-208`, the communication module — correct, but shared by both Pulse families, so it carries no
+series information either.
 
 ### Component descriptions (from Uponor's installation manual)
 
