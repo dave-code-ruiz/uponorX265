@@ -46,7 +46,8 @@ from .const import (
     TOO_HIGH_TEMP_LIMIT,
     DEFAULT_TEMP,
     DEVICE_MANUFACTURER,
-    DIAL_THERMOSTAT_MODELS
+    DIAL_THERMOSTAT_MODELS,
+    FLAG_DEFAULTS
 )
 from .jnap import UponorJnap
 from .helper import get_unique_id_from_config_entry, _get_mac_with_arp_refresh 
@@ -271,15 +272,32 @@ def _remove_unsupported_local_override_entities(hass: HomeAssistant, config_entr
             ent_reg.async_remove(entry.entity_id)
 
 
+def _sync_entry_config(hass: HomeAssistant, config_entry: ConfigEntry) -> None:
+    """Reconcile entry.data with entry.options, filling in feature defaults."""
+    # The options flow reads entry.data and writes entry.options, while every
+    # platform reads entry.data - so the two have to be kept in step or an
+    # options change never reaches the entities.
+    #
+    # Merge rather than replace: options win over data, a key only data holds
+    # survives (a wholesale replace would drop it), and any feature flag
+    # neither carries falls back to its documented default. Entries created
+    # before the 1.1.5 refactor have none of those keys, so without the
+    # defaults data and options can never compare equal and this ran on every
+    # single setup.
+    #
+    # Deliberately does NOT touch the device or entity registries. This block
+    # used to call async_clear_config_entry() on both first, which deletes
+    # every entity row belonging to the entry - taking custom names,
+    # entity_ids, areas and icons with it, and re-registering under fresh
+    # entity_ids - and it ran before both migrations, leaving them an empty
+    # device list and nothing to migrate.
+    merged = {**FLAG_DEFAULTS, **config_entry.data, **(config_entry.options or {})}
+    if merged != dict(config_entry.data) or merged != dict(config_entry.options):
+        hass.config_entries.async_update_entry(config_entry, data=merged, options=merged)
+
+
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
-    # Sync options to data if they differ
-    if config_entry.options:
-        if config_entry.data != config_entry.options:
-            dev_reg = device_registry.async_get(hass)
-            ent_reg = entity_registry.async_get(hass)
-            dev_reg.async_clear_config_entry(config_entry.entry_id)
-            ent_reg.async_clear_config_entry(config_entry.entry_id)
-            hass.config_entries.async_update_entry(config_entry, data=config_entry.options)
+    _sync_entry_config(hass, config_entry)
 
     host = config_entry.data[CONF_HOST]
     unique_id = get_unique_id_from_config_entry(config_entry)

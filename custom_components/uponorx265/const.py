@@ -41,5 +41,18 @@ CONF_BINARY_SENSOR_VALVE = "binary_sensor_valve"
 CONF_SWITCH_SENSOR_AVG = "switch_sensor_avg"
 CONF_CONTROLLER_IO = "controller_io"
 CONF_INSTALLER_SETTINGS = "installer_settings"
+
+# The documented default for every optional feature, matching the defaults the
+# config flow offers. Config entries created before the 1.1.5 refactor carry
+# none of these keys, so setup fills them in - see async_setup_entry.
+FLAG_DEFAULTS = {
+    CONF_SENSOR_TEMP: True,
+    CONF_CREATE_CONTROLLERS: True,
+    CONF_BINARY_SENSOR_VALVE: False,
+    CONF_SWITCH_SENSOR_AVG: False,
+    CONF_CONTROLLER_IO: False,
+    CONF_INSTALLER_SETTINGS: False,
+}
+
 TOO_HIGH_TEMP_LIMIT = 4508
 DEFAULT_TEMP = 20
