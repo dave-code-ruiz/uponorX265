@@ -1,6 +1,7 @@
 import asyncio
 import math
 import logging
+from functools import partial
 
 import voluptuous as vol
 
@@ -120,10 +121,11 @@ def _resolve_target_proxies(hass: HomeAssistant, call) -> list:
 def _migrate_entity_unique_ids(hass: HomeAssistant, config_entry: ConfigEntry, unique_instance_id: str) -> None:
     """Migrate entity registry entries to the current unique_id formats.
 
-    Two historical format changes are handled, composing so that an upgrade
+    Three historical format changes are handled, composing so that an upgrade
     from any older version lands on the current format in one pass:
     - pre-1.1.2: bare ids (no config-entry prefix) gain the prefix
     - pre-1.1.5: climate ids (no '_climate' suffix) gain the suffix
+    - the gateway status sensor drops the embedded gateway id
     """
     ent_reg = entity_registry.async_get(hass)
     entries = entity_registry.async_entries_for_config_entry(ent_reg, config_entry.entry_id)
@@ -135,6 +137,15 @@ def _migrate_entity_unique_ids(hass: HomeAssistant, config_entry: ConfigEntry, u
             new_unique_id = f"{prefix}{new_unique_id}"
         if entry.domain == "climate" and not new_unique_id.endswith("_climate"):
             new_unique_id = f"{new_unique_id}_climate"
+        # The gateway status sensor used to embed the resolved gateway id
+        # (MAC when resolvable, the host with dots stripped when not). That id
+        # changes the first time MAC resolution starts working, which silently
+        # changed this unique_id and left the previous entity behind holding
+        # the good entity_id - so the new one came back as
+        # sensor.uponor_gateway_status_2. Collapse every historical form to
+        # the id-free one, which cannot drift.
+        if entry.domain == "sensor" and new_unique_id.endswith("_gateway_status"):
+            new_unique_id = f"{prefix}gateway_status"
 
         if new_unique_id == entry.unique_id:
             continue
@@ -653,25 +664,58 @@ class UponorStateProxy:
         return self._gateway_id
 
     async def async_resolve_gateway_id(self) -> str:
-        """Resolve gateway MAC via ARP (with UDP socket to prime ARP cache) and cache it."""
-        if self._gateway_id is None:
-            mac = get_mac_address(ip=self._host)
-            _LOGGER.debug("Direct get_mac_address(%s) (no ARP priming) returned: %s", self._host, mac)
-            if mac is not None:
-                self._gateway_id = mac.replace(':', '').upper()
-            else:
-                mac = await self._hass.async_add_executor_job(
-                    _get_mac_with_arp_refresh, self._host
-                )
-                if mac is not None:
-                    self._gateway_id = mac.replace(':', '').upper()
-                else:
-                    _LOGGER.warning(
-                        "Could not resolve MAC address for %s, using host as fallback",
-                        self._host,
-                    )
-                    self._gateway_id = self._host.replace('.', '')
+        """Resolve the gateway MAC via ARP and cache it; fall back to the host form.
+
+        The fallback is returned but deliberately NOT cached. Resolution can
+        fail at boot for reasons that clear up moments later - a cold ARP
+        cache, a gateway that has not answered yet - and caching the fallback
+        pinned the host-based id for the entire session. That id is not
+        cosmetic: it becomes the gateway device's identifier and is baked into
+        the gateway sensor's unique_id, so a single failed lookup at startup
+        registers the whole tree under an identifier a later restart will not
+        match, leaving an orphaned device behind. Leaving the cache empty lets
+        the next poll pick up the real MAC instead (see async_update).
+
+        Both lookups run in the executor: getmac reads /proc/net/arp and on
+        several platforms shells out to `arp` or `ip neighbor`, which is
+        exactly what Home Assistant's blocking-call detector flags.
+        """
+        if self._gateway_id is not None:
+            return self._gateway_id
+
+        mac = await self._hass.async_add_executor_job(
+            partial(get_mac_address, ip=self._host)
+        )
+        _LOGGER.debug("Direct get_mac_address(%s) (no ARP priming) returned: %s", self._host, mac)
+        if mac is None:
+            mac = await self._hass.async_add_executor_job(
+                _get_mac_with_arp_refresh, self._host
+            )
+
+        if mac is None:
+            _LOGGER.warning(
+                "Could not resolve MAC address for %s; using the host-based id "
+                "until it resolves on a later poll",
+                self._host,
+            )
+            return self.get_gateway_id()
+
+        self._gateway_id = mac.replace(':', '').upper()
         return self._gateway_id
+
+    async def _async_retry_gateway_id(self) -> None:
+        """Second chance at the MAC after a startup fallback, then repair the registry."""
+        resolved = await self.async_resolve_gateway_id()
+        if self._gateway_id is None:
+            return
+
+        _LOGGER.info(
+            "Resolved gateway MAC for %s after starting on the host-based id: %s",
+            self._host, resolved,
+        )
+        _migrate_gateway_device_id(
+            self._hass, self._config_entry, self._unique_id, resolved
+        )
 
     def get_pump_management(self):
         var = 'sys_pump_management'
@@ -1295,6 +1339,12 @@ class UponorStateProxy:
                         self._hass, self._config_entry, self._unique_id,
                         self, self.get_active_thermostats(),
                     )
+
+                # The MAC may not have been resolvable at setup. Retry here so
+                # the session converges on the real identifier rather than
+                # running on the host fallback until the next restart.
+                if self._gateway_id is None:
+                    await self._async_retry_gateway_id()
 
                 self._hass.async_create_task(self.call_state_update())
                 return

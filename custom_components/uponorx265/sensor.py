@@ -107,7 +107,12 @@ class UponorGatewayStatusSensor(UponorGatewayEntity, SensorEntity):
 
     def __init__(self, unique_instance_id, state_proxy):
         super().__init__(unique_instance_id, state_proxy)
-        self._attr_unique_id = f"{self._unique_instance_id}_{self._gateway_id}_gateway_status"
+        # Deliberately free of the gateway id. There is one gateway per config
+        # entry, so the instance id alone is unique - and the resolved gateway
+        # id is volatile (MAC when it resolves, host-based when it does not),
+        # which used to change this unique_id underneath the registry and
+        # strand the old entity as sensor.uponor_gateway_status_2.
+        self._attr_unique_id = f"{self._unique_instance_id}_gateway_status"
 
     @property
     def native_value(self):
