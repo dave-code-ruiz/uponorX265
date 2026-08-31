@@ -384,6 +384,58 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
     return unload_ok
 
 
+async def async_remove_config_entry_device(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    device_entry: device_registry.DeviceEntry,
+) -> bool:
+    """Allow deleting a device the gateway no longer reports.
+
+    Home Assistant only renders the Delete action on a device page when the
+    integration implements this, and the same gate makes programmatic removal
+    refuse. Without it, anything the integration orphans - a gateway device
+    left under a stale identifier, a thermostat that has been unpaired - can
+    only be cleared by editing the registry by hand.
+
+    A device counts as still present if any of its identifiers matches the
+    gateway, a controller or a thermostat this entry currently knows about.
+    Cached controllers and thermostats count too, so a unit missing from one
+    transient JNAP response is not offered up for deletion.
+    """
+    unique_instance_id = get_unique_id_from_config_entry(config_entry)
+    entry_data = hass.data.get(unique_instance_id)
+    if not entry_data:
+        # The entry is not loaded, so the live set is unknown. Refuse rather
+        # than risk removing a device that is in fact still present.
+        _LOGGER.debug(
+            "Refusing removal of device %s: config entry %s is not loaded",
+            device_entry.id, config_entry.entry_id,
+        )
+        return False
+
+    state_proxy = entry_data["state_proxy"]
+
+    known_ids = {state_proxy.get_gateway_id()}
+    controllers = set(state_proxy.get_active_controllers()) | set(state_proxy.get_cached_controllers())
+    for controller in controllers:
+        known_ids.add(state_proxy.get_controller_id(controller))
+    thermostats = set(state_proxy.get_active_thermostats()) | set(state_proxy.get_cached_thermostats())
+    for thermostat in thermostats:
+        known_ids.add(state_proxy.get_thermostat_id(thermostat))
+    known_ids.discard(None)
+
+    still_present = any(
+        domain == unique_instance_id and identifier in known_ids
+        for domain, identifier in device_entry.identifiers
+    )
+    if still_present:
+        _LOGGER.debug(
+            "Refusing removal of device %s: still reported by the gateway",
+            device_entry.id,
+        )
+    return not still_present
+
+
 def _create_set_variable_handler(hass: HomeAssistant):
     """Build the uponorx265.set_variable service handler bound to this hass instance.
 
