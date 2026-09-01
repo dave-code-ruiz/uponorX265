@@ -9,7 +9,7 @@ entry with no via_device) rather than guessing specific old id strings, so
 it isn't fooled by an id it's never seen before.
 """
 
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.uponorx265 import DOMAIN, _migrate_gateway_device_id
@@ -88,9 +88,33 @@ async def test_merges_duplicate_left_by_a_prior_restart(hass):
     dev_reg = dr.async_get(hass)
     old_device = register_device(hass, entry, HOST_ID)
     old_device = dev_reg.async_update_device(old_device.id, name_by_user="Garage Gateway")
+
+    ent_reg = er.async_get(hass)
+    gateway_entity = ent_reg.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{UNIQUE_ID}_{HOST_ID}_gateway_status",
+        config_entry=entry,
+        device_id=old_device.id,
+        suggested_object_id="uponor_gateway_status",
+    )
+    gateway_entity = ent_reg.async_update_entity(
+        gateway_entity.entity_id,
+        name="Garage connection",
+        icon="mdi:garage",
+    )
+
+    controller = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(UNIQUE_ID, "419524869")},
+        manufacturer="Uponor",
+        name="Controller 1",
+        via_device=(UNIQUE_ID, HOST_ID),
+    )
     new_device = register_device(hass, entry, UPPER_MAC)
 
     _migrate_gateway_device_id(hass, entry, UNIQUE_ID, UPPER_MAC)
+    await hass.async_block_till_done()
 
     dev_reg = dr.async_get(hass)
     assert dev_reg.async_get_device(identifiers={(UNIQUE_ID, HOST_ID)}) is None, (
@@ -101,6 +125,20 @@ async def test_merges_duplicate_left_by_a_prior_restart(hass):
     assert remaining.id == new_device.id
     assert remaining.name_by_user == "Garage Gateway", (
         "user customization from the old device must be carried over"
+    )
+
+    surviving_entity = ent_reg.async_get(gateway_entity.entity_id)
+    assert surviving_entity is not None, (
+        "removing the duplicate device must not delete its entity registry rows"
+    )
+    assert surviving_entity.device_id == new_device.id
+    assert surviving_entity.name == "Garage connection"
+    assert surviving_entity.icon == "mdi:garage"
+
+    migrated_controller = dev_reg.async_get(controller.id)
+    assert migrated_controller is not None
+    assert migrated_controller.via_device_id == new_device.id, (
+        "child devices must be reparented before the duplicate gateway is removed"
     )
 
 

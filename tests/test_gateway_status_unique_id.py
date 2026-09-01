@@ -87,13 +87,24 @@ async def test_a_stranded_duplicate_is_removed(hass):
     """Both rows already exist - the run that produced the _2 in the first place."""
     proxy = make_state_proxy(hass, unique_id=UID)
     stale = _register(hass, proxy._config_entry, f"{UID}_{HOST_FORM}_gateway_status")
+    reg = er.async_get(hass)
+    stale = reg.async_update_entity(
+        stale.entity_id,
+        name="Boiler room gateway",
+        icon="mdi:boiler",
+    )
     current = _register(hass, proxy._config_entry, CANONICAL, object_id="uponor_gateway_status_2")
 
     _migrate_entity_unique_ids(hass, proxy._config_entry, UID)
 
-    reg = er.async_get(hass)
-    assert reg.async_get(stale.entity_id) is None, "stale duplicate was not removed"
-    assert reg.async_get(current.entity_id).unique_id == CANONICAL
+    surviving = reg.async_get(stale.entity_id)
+    assert surviving is not None, "the original registry row was removed"
+    assert surviving.unique_id == CANONICAL
+    assert surviving.name == "Boiler room gateway"
+    assert surviving.icon == "mdi:boiler"
+    assert reg.async_get(current.entity_id) is None, (
+        "the newer _2 duplicate should be removed instead of the original entity"
+    )
 
 
 async def test_the_sensor_reclaims_its_entity_id_instead_of_becoming_2(hass):

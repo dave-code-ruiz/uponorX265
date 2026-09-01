@@ -136,6 +136,15 @@ def _migrate_entity_unique_ids(hass: HomeAssistant, config_entry: ConfigEntry, u
     entries = entity_registry.async_entries_for_config_entry(ent_reg, config_entry.entry_id)
     prefix = f"{unique_instance_id}_"
 
+    def _entity_preference_key(entry):
+        """Prefer the oldest row, then an entity id without a numeric suffix."""
+        _, separator, suffix = entry.entity_id.rpartition("_")
+        return (
+            entry.created_at,
+            bool(separator and suffix.isdigit()),
+            entry.entity_id,
+        )
+
     for entry in entries:
         new_unique_id = entry.unique_id
         if not new_unique_id.startswith(prefix):
@@ -156,10 +165,38 @@ def _migrate_entity_unique_ids(hass: HomeAssistant, config_entry: ConfigEntry, u
             continue
 
         # Scenario 2: an entity with the new unique_id already exists (created
-        # as a duplicate by a version that lacked this migration). Remove the
-        # stale old-id entry instead of failing.
+        # as a duplicate by a version that lacked this migration).
         existing_entity_id = ent_reg.async_get_entity_id(entry.domain, DOMAIN, new_unique_id)
         if existing_entity_id is not None:
+            existing_entry = ent_reg.async_get(existing_entity_id)
+            is_gateway_status = (
+                entry.domain == "sensor"
+                and new_unique_id == f"{prefix}gateway_status"
+                and existing_entry is not None
+                and existing_entry.config_entry_id == config_entry.entry_id
+            )
+            if is_gateway_status:
+                # Keep the original registry row, which normally owns the
+                # unsuffixed entity_id and all of the user's customizations.
+                # created_at also makes this deterministic for less common
+                # combinations of several historical gateway ids.
+                if _entity_preference_key(entry) < _entity_preference_key(existing_entry):
+                    ent_reg.async_remove(existing_entry.entity_id)
+                    ent_reg.async_update_entity(entry.entity_id, new_unique_id=new_unique_id)
+                    kept_entity_id = entry.entity_id
+                    removed_entity_id = existing_entry.entity_id
+                else:
+                    ent_reg.async_remove(entry.entity_id)
+                    kept_entity_id = existing_entry.entity_id
+                    removed_entity_id = entry.entity_id
+                _LOGGER.info(
+                    "Merged duplicate gateway status entities; kept %s and removed %s",
+                    kept_entity_id,
+                    removed_entity_id,
+                )
+                continue
+
+            # For all other migrations, retain the already-canonical row.
             _LOGGER.info(
                 "Removing stale entity %s (unique_id '%s') because '%s' already exists as %s",
                 entry.entity_id, entry.unique_id, new_unique_id, existing_entity_id,
@@ -194,8 +231,8 @@ def _migrate_gateway_device_id(hass: HomeAssistant, config_entry: ConfigEntry, u
     device with no via_device (the root of the gateway/controller/thermostat
     hierarchy) — whatever identifier it currently holds, that's the old
     gateway device to reconcile. Renames it in place if no device already
-    exists under the new identifier, or drops it (after copying over any
-    user customization) if one does.
+    exists under the new identifier, or merges it (including attached
+    entities, child devices, and user customization) if one does.
     """
     if new_gateway_id is None:
         return
@@ -224,12 +261,29 @@ def _migrate_gateway_device_id(hass: HomeAssistant, config_entry: ConfigEntry, u
         )
         return
 
-    # A new device already exists (created by a prior restart). Carry over
-    # any user customization, then drop the now-orphaned old device.
+    # A new device already exists (created by a prior restart). Move every
+    # reference away from the old device before removing it: Home Assistant
+    # otherwise deletes attached entity rows and clears child parent links.
     if old_device.area_id and not new_device.area_id:
         dev_reg.async_update_device(new_device.id, area_id=old_device.area_id)
     if old_device.name_by_user and not new_device.name_by_user:
         dev_reg.async_update_device(new_device.id, name_by_user=old_device.name_by_user)
+
+    ent_reg = entity_registry.async_get(hass)
+    for entity_entry in entity_registry.async_entries_for_device(
+        ent_reg, old_device.id, include_disabled_entities=True
+    ):
+        ent_reg.async_update_entity(entity_entry.entity_id, device_id=new_device.id)
+
+    for child_device in device_registry.async_entries_for_config_entry(
+        dev_reg, config_entry.entry_id
+    ):
+        if child_device.via_device_id == old_device.id:
+            dev_reg.async_update_device(
+                child_device.id,
+                via_device_id=new_device.id,
+            )
+
     dev_reg.async_remove_device(old_device.id)
     _LOGGER.info(
         "Removed orphaned gateway device (%s) for %s, superseded by '%s'",
