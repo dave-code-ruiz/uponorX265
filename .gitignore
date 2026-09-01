@@ -5,3 +5,5 @@
 .github/
 .ignore_these/
 ARCHITECTURE_sv.md
+.venv/
+.pytest_cache/
