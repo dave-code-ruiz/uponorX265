@@ -376,9 +376,18 @@ def _register_gateway_devices(hass: HomeAssistant, config_entry: ConfigEntry, un
     """
     dev_reg = device_registry.async_get(hass)
     gateway_identifier = (unique_instance_id, state_proxy.get_gateway_id())
+    # The MAC goes in as a connection, not just as part of the identifier
+    # string: HA matches DHCP leases against connections, which is how the
+    # entry recovers when the gateway is handed a new IP.
+    gateway_mac = state_proxy.get_gateway_mac()
     gateway_device = dev_reg.async_get_or_create(
         config_entry_id=config_entry.entry_id,
         identifiers={gateway_identifier},
+        connections=(
+            {(device_registry.CONNECTION_NETWORK_MAC, gateway_mac)}
+            if gateway_mac
+            else set()
+        ),
         manufacturer=DEVICE_MANUFACTURER,
         name=state_proxy.get_integration_name(),
         model=state_proxy.get_model(),
@@ -505,18 +514,38 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     await state_proxy.async_load_storage()
 
     thermostats = state_proxy.get_cached_thermostats()
-    if thermostats:
+    started_from_cache = bool(thermostats)
+    if started_from_cache:
         hass.async_create_task(state_proxy.async_update())
     else:
         await state_proxy.async_update()
         thermostats = state_proxy.get_active_thermostats()
 
-    # Must run before platform setup: device_info reads get_gateway_id(). Only
-    # an authoritative MAC lookup may migrate the registry; a failed lookup
-    # retains the existing gateway identifier as an unconfirmed fallback.
-    resolved_gateway_id = await state_proxy.async_resolve_gateway_id()
-    if state_proxy._gateway_id is not None:
-        _migrate_gateway_device_id(hass, config_entry, unique_id, resolved_gateway_id)
+    # Resolving the gateway id is a JNAP round trip, so it is only awaited on
+    # the path that is already waiting on the network.
+    #
+    # A cached start deliberately does not wait for the gateway - that is the
+    # whole point of caching thermostats, so entities come back after a
+    # restart even while the gateway is still booting. There is also nothing
+    # to look up: this entry has been set up before, so
+    # _get_registered_gateway_id() has already read the identifier its gateway
+    # device is registered under, and get_gateway_id() returns exactly that.
+    # The backgrounded update above resolves the MAC properly and calls
+    # _async_retry_gateway_id(), which migrates the registry if it ever
+    # differs - so a changed or previously-unresolved id still converges,
+    # just without holding platform setup behind an 8-second timeout when the
+    # gateway is unreachable.
+    #
+    # On a first setup there is no registered id to fall back on, and
+    # async_update() above has already paid the network cost, so resolve here:
+    # device_info reads get_gateway_id() during platform setup and would
+    # otherwise register everything under the host-derived form.
+    if not started_from_cache:
+        resolved_gateway_id = await state_proxy.async_resolve_gateway_id()
+        if state_proxy._gateway_id is not None:
+            _migrate_gateway_device_id(
+                hass, config_entry, unique_id, resolved_gateway_id
+            )
 
     hass.data[unique_id] = {
         "state_proxy": state_proxy,
@@ -1301,6 +1330,17 @@ class UponorStateProxy:
         """
         number = self._device_info.get("firmwareNumber")
         return str(number) if number is not None else None
+
+    def get_gateway_mac(self):
+        """The gateway's MAC, or None if it has never reported one.
+
+        Deliberately separate from get_gateway_id(): that is a registry key
+        which may be a host-derived fallback, while this is only ever a real
+        MAC. Recording it as a device *connection* is what lets Home
+        Assistant's DHCP discovery recognise the gateway after it changes IP.
+        """
+        mac = self._device_info.get("deviceID")
+        return device_registry.format_mac(mac) if mac else None
 
     def get_gateway_hw_version(self):
         version = self._device_info.get("hardwareVersion")

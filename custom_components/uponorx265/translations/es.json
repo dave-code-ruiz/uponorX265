@@ -71,7 +71,10 @@
       "error": {
         "invalid_host": "Nombre del host o dirección IP no válida."
       },
-      "abort": {}
+      "abort": {
+        "already_configured": "Esta pasarela Uponor ya está configurada.",
+        "not_uponor_device": "Este dispositivo no es una pasarela Uponor conocida."
+      }
     },
     "options": {
       "step": {

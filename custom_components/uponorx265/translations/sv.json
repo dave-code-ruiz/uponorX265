@@ -93,7 +93,10 @@
     "error": {
       "invalid_host": "Ogiltigt värdnamn eller IP-adress."
     },
-    "abort": {}
+    "abort": {
+      "already_configured": "Den här Uponor-gatewayen är redan konfigurerad.",
+      "not_uponor_device": "Den här enheten är inte en känd Uponor-gateway."
+    }
   },
   "options": {
     "step": {

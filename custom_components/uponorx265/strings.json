@@ -93,7 +93,10 @@
     "error": {
       "invalid_host": "Invalid hostname or IP address."
     },
-    "abort": {}
+    "abort": {
+      "already_configured": "This Uponor gateway is already configured.",
+      "not_uponor_device": "This device is not a known Uponor gateway."
+    }
   },
   "options": {
     "step": {

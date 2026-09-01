@@ -1,9 +1,10 @@
 """The pre-HA-2026.8 fallbacks in the device-registry compat shims must work.
 
-Two registry APIs changed in HA 2026.8/2026.9: `async_get_device` gave way to
-`async_get_device_by_identifier`, and `async_get_or_create`'s `via_device`
-(a parent identifier tuple) gave way to `via_device_id` (the parent's registry
-id). Both old forms break in HA 2027.8.
+Three registry APIs changed in HA 2026.8/2026.9: `async_get_device` gave way
+to `async_get_device_by_identifier` for identifier lookups and to
+`async_get_devices` for connection lookups, and `async_get_or_create`'s
+`via_device` (a parent identifier tuple) gave way to `via_device_id` (the
+parent's registry id). All the old forms break in HA 2027.8.
 
 The integration prefers the new APIs and falls back to the old ones on cores
 older than 2026.8. Nothing else covers those fallback branches — on a current
@@ -33,6 +34,7 @@ from custom_components.uponorx265 import (
     _async_get_device_by_identifier,
     _register_gateway_devices,
 )
+from custom_components.uponorx265.helper import _async_get_devices_by_connection
 from tests.helpers import make_state_proxy
 
 UNIQUE_ID = "uponorx265_test"
@@ -122,3 +124,34 @@ async def test_via_device_fallback_still_builds_the_hierarchy(hass, monkeypatch)
     assert controller.via_device_id == gateway.id, (
         "the deprecated via_device identifier must still resolve to the gateway"
     )
+
+
+async def test_connection_lookup_falls_back_to_async_get_device(hass, monkeypatch):
+    """Without async_get_devices, the old connection lookup still finds the gateway.
+
+    This is the lookup DHCP IP-recovery depends on: no MAC match, no way to
+    tell that a new lease belongs to an already-configured gateway.
+    """
+    entry = MockConfigEntry(domain=DOMAIN, unique_id=UNIQUE_ID)
+    entry.add_to_hass(hass)
+    dev_reg = dr.async_get(hass)
+    connection = (dr.CONNECTION_NETWORK_MAC, dr.format_mac("AA:BB:CC:DD:EE:FF"))
+    device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(UNIQUE_ID, GATEWAY_ID)},
+        connections={connection},
+    )
+
+    # Simulate a core older than 2026.8, where the method does not exist.
+    monkeypatch.delattr(type(dev_reg), "async_get_devices", raising=False)
+
+    found = _async_get_devices_by_connection(dev_reg, connection)
+    assert [d.id for d in found] == [device.id], (
+        "fallback connection lookup failed to find the registered gateway"
+    )
+
+    missing = _async_get_devices_by_connection(
+        dev_reg, (dr.CONNECTION_NETWORK_MAC, dr.format_mac("00:11:22:33:44:55"))
+    )
+    assert missing == [], "fallback lookup must report an absent device as empty"
+

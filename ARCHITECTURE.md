@@ -22,7 +22,11 @@ Home Assistant custom integration that connects to an **Uponor Smatrix Pulse** g
 `UponorStateProxy` is the central class: keeps the raw data (`_data`) in memory, polls the gateway on `SCAN_INTERVAL` (30s), and exposes typed getters/setters (`get_setpoint`, `async_set_target_temperature`, `get_bypass_enable`, etc.) that the platform files build entities from. On every update, `SIGNAL_UPONOR_STATE_UPDATE` is sent via HA's dispatcher so all entities update at once. Data is also cached in `Store` (per config entry) for fast restarts. The module also registers the integration's services (`set_variable`, `dump_hardware_info`, `dump_raw_data`).
 
 ### Gateway ID (MAC address) — [__init__.py](custom_components/uponorx265/__init__.py)
-The gateway's `device_info` identifier is based on its MAC address when it can be resolved, otherwise it falls back to a host-based ID (the IP address with dots stripped). `UponorStateProxy.async_resolve_gateway_id()` runs in `async_setup_entry` before the platforms are set up (since `device_info` reads `get_gateway_id()`).
+The gateway's `device_info` identifier is based on its MAC address when it can be resolved, otherwise it falls back to a host-based ID (the IP address with dots stripped).
+
+`UponorStateProxy.async_resolve_gateway_id()` is a JNAP round trip, so `async_setup_entry` only awaits it **on a first setup** — the path that already awaits the first poll, and the only one where `get_gateway_id()` has nothing better than the host form to give `device_info` during platform setup.
+
+A cached start skips it. Caching thermostats exists so entities come back after a restart while the gateway is still booting, and awaiting the network there would put an ~8-second timeout (three attempts at a 2s connect timeout, plus backoff) in front of every entity whenever the gateway is unreachable. It is also redundant: a cached start means the entry has been set up before, so `_get_registered_gateway_id()` has already read the identifier the gateway device is registered under and `get_gateway_id()` returns exactly that. The backgrounded poll resolves the real MAC and `_async_retry_gateway_id()` migrates the registry if it ever differs, so a changed or never-resolved id still converges — just without holding up setup.
 
 The MAC is **read from the gateway**, not inferred from the network: the JNAP core action `http://phyn.com/jnap/core/GetDeviceInfo` reports it as `deviceID` (e.g. `AA:BB:CC:DD:EE:FF`), which is uppercased and stripped of colons before being used as the ID. The same response carries the gateway's printed serial number, hardware version and firmware (`firmwareNumber`, the value the Uponor app displays) — none of which appear anywhere in the `uponorsky/GetAttributes` variable set, because that set describes the controllers and thermostats *behind* the comm module rather than the module itself. See "Gateway device info" below.
 
@@ -55,6 +59,21 @@ deviceName / manufacturer / productCode / description / firmwareDate / services
 ```
 
 `firmwareNumber` and `firmwareVersion` carry the same version in two renderings (`2_0_6_6` -> `20006006`); the app shows the number, so that is what the device page shows. `UponorStateProxy.async_load_device_info()` fetches this once per setup and is best-effort — a gateway that does not answer keeps a fully working attribute set, so a failure must not fail setup. It is deliberately not cached on failure, because the gateway ID depends on it and a later poll must be free to retry.
+
+### Recovering from a gateway IP change — [config_flow.py](custom_components/uponorx265/config_flow.py)
+The MAC has always been the gateway device's registry key, so a DHCP move never renamed the device. It did not help the integration *reach* a moved gateway: `CONF_HOST` stays whatever address was typed into the config flow, and a move simply made the entry unavailable.
+
+Three pieces close that gap:
+
+1. `_register_gateway_devices()` records the MAC as a device **connection** (`CONNECTION_NETWORK_MAC`), not only inside the identifier string. HA matches DHCP leases against connections; an identifier is opaque to it.
+2. The manifest declares `"dhcp": [{"registered_devices": true}]`, which asks HA to watch leases for MACs this integration has registered — it never triggers for an unknown device.
+3. `DomainConfigFlow.async_step_dhcp()` maps the MAC back to the config entry through the device registry and rewrites the host.
+
+The entry's `unique_id` is derived from the user's chosen name, not the MAC, so the usual `_abort_if_unique_id_configured(updates={CONF_HOST: ...})` shortcut cannot find it — the device registry is the only link between the two. A MAC may also be registered by other integrations (a router, a device tracker), so every matching device is examined and only an entry in this domain is touched.
+
+**The host must be written to both `data` and `options`.** `_sync_entry_config()` merges them as `{**FLAG_DEFAULTS, **data, **options}`, so options win; updating `data` alone is silently reverted to the stale address on the next setup.
+
+Limits worth knowing: recovery waits for the next lease renewal, and HA has to be able to observe DHCP traffic at all (fine on HAOS/Supervised, not guaranteed for containers on a bridge network). A gateway on another subnet is not seen either — though note the JNAP MAC read *does* work cross-subnet, so the device identity stays correct there even when this recovery path cannot fire. None of this was possible with the previous ARP-based lookup, which could not produce a MAC to register in exactly those situations.
 
 ### Device registration ordering — [__init__.py](custom_components/uponorx265/__init__.py)
 Thermostat and controller entities declare a `via_device` pointing at their parent (controller, then gateway) in their `device_info`. Historically the parent device only ever got created as a side effect of a specific entity — a controller status sensor, gated behind the optional `CONF_CREATE_CONTROLLERS` — which lives in the `SENSOR` platform, loaded *after* `CLIMATE` and `SWITCH` in `PLATFORMS`. HA would log a `via_device` referencing a non-existing device warning and eventually stop honoring it, and if the controller sensor was disabled the parent device was never created at all.

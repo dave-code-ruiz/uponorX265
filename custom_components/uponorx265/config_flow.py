@@ -2,6 +2,8 @@ from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 import voluptuous as vol
 import logging
 
@@ -27,6 +29,7 @@ from .const import (
 from .helper import (
     create_unique_id_from_user_input,
     generate_unique_id_from_user_input_conf_name,
+    _async_get_devices_by_connection,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,6 +49,55 @@ class DomainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_UNIQUE_ID): str,
             }
         )
+
+    async def async_step_dhcp(self, discovery_info: DhcpServiceInfo):
+        """Follow a known gateway to its new IP address.
+
+        Declared in the manifest as `registered_devices`, so Home Assistant
+        only calls this for a MAC already recorded as a connection on a
+        gateway device this integration created - a recovery path for an
+        existing entry, never a way to adopt a new gateway.
+
+        The entry's unique_id is derived from the user's chosen name rather
+        than from the MAC, so the usual
+        `_abort_if_unique_id_configured(updates=...)` shortcut cannot find it.
+        The device registry is what links the MAC back to the entry.
+        """
+        mac = dr.format_mac(discovery_info.macaddress)
+        devices = _async_get_devices_by_connection(
+            dr.async_get(self.hass), (dr.CONNECTION_NETWORK_MAC, mac)
+        )
+
+        # A MAC can be registered by more than one integration (a router, a
+        # device tracker), so every match is checked and only ours is acted on.
+        for device in devices:
+            for entry_id in device.config_entries:
+                entry = self.hass.config_entries.async_get_entry(entry_id)
+                if entry is None or entry.domain != DOMAIN:
+                    continue
+                if entry.data.get(CONF_HOST) == discovery_info.ip:
+                    return self.async_abort(reason="already_configured")
+
+                _LOGGER.info(
+                    "Uponor gateway %s is now at %s (was %s); updating the config entry",
+                    mac, discovery_info.ip, entry.data.get(CONF_HOST),
+                )
+                # Both data and options, deliberately. async_setup_entry merges
+                # the two with options taking precedence, so writing the new
+                # host to data alone would be silently reverted to the stale
+                # address on the next setup.
+                self.hass.config_entries.async_update_entry(
+                    entry,
+                    data={**entry.data, CONF_HOST: discovery_info.ip},
+                    options={**entry.options, CONF_HOST: discovery_info.ip},
+                )
+                # Updating the entry fires its update listener, which reloads.
+                # If the entry is in a failed/retrying state that listener is
+                # not registered, and HA's own setup retry picks up the new
+                # host instead.
+                return self.async_abort(reason="already_configured")
+
+        return self.async_abort(reason="not_uponor_device")
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step."""

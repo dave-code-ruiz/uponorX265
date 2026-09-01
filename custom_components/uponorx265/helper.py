@@ -30,6 +30,31 @@ def generate_unique_id_from_user_input_conf_name(user_input):
     return raw_unique_id.replace(" ", "_").lower()
 
 
+def _async_get_devices_by_connection(dev_reg, connection: tuple[str, str]):
+    """Every device carrying a connection, across all config entries.
+
+    `async_get_devices` was added in HA 2026.8, when identifiers and
+    connections stopped being unique across config entries and the single-match
+    `async_get_device` was deprecated (it raises from 2027.8).
+
+    The list form is what is wanted here regardless of the deprecation: a MAC
+    can legitimately be registered by several integrations at once - a router,
+    a device tracker - and only the caller can say which of those devices it
+    owns. The deprecated single-match lookup would resolve that ambiguity on
+    its own and could hand back somebody else's device.
+
+    On cores older than 2026.8 the new method does not exist and the
+    deprecated one is the only lookup available; there, connections really
+    were unique, so a one-item list is the same answer.
+
+    Drop this shim once the integration requires 2026.8 or newer.
+    """
+    if hasattr(dev_reg, "async_get_devices"):
+        return dev_reg.async_get_devices(connections={connection})
+    device = dev_reg.async_get_device(connections={connection})
+    return [device] if device is not None else []
+
+
 def get_unique_id_from_config_entry(config_entry: ConfigEntry):
     return config_entry.unique_id
 

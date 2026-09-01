@@ -45,6 +45,19 @@ The setup wizard has four steps:
 
 All settings can be changed later via **Settings → Devices & Services → UponorX265 → Configure**.
 
+## If the gateway changes IP address
+
+The gateway is configured by IP address, so a DHCP lease change would normally leave the
+integration talking to nothing. It recovers on its own: the gateway reports its own MAC
+address, which is recorded on the gateway device, and Home Assistant's DHCP discovery
+matches a new lease against it and updates the stored address.
+
+Recovery happens when the gateway next renews its lease, so it is not instant, and it
+requires Home Assistant to be able to observe DHCP traffic (reliable on HAOS and
+Supervised installs; container installs on a bridge network may not see it). Assigning the
+gateway a static DHCP reservation on your router avoids the situation entirely and is
+still worth doing.
+
 ## Multiple gateways
 
 Multiple R-208 gateways can be added as separate integration instances. Each instance is
