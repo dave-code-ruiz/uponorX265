@@ -1,0 +1,55 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Nightly: requirements_test.txt floats pytest-homeassistant-custom-component,
+    # so this is what catches a new HA release breaking the integration before a
+    # user does.
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    name: ${{ matrix.name }}
+    runs-on: "ubuntu-latest"
+    strategy:
+      # Report both legs; a failure on one is not a reason to hide the other.
+      fail-fast: false
+      matrix:
+        include:
+          # What users actually run.
+          - name: "HA latest"
+            phacc: ""
+          # HA 2026.8 is the newest core that still *executes* the pre-2026.8
+          # registry fallbacks instead of raising on them, so it is the only
+          # place tests/test_ha_compat_shims.py runs rather than skipping.
+          # Drop this leg when the fallbacks go. See tests/README.md.
+          - name: "HA 2026.8 (compat fallbacks)"
+            phacc: "==0.13.357"
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          # HA 2026.9 requires >=3.14.2; 2026.8 also runs on it.
+          python-version: "3.14"
+          cache: "pip"
+          cache-dependency-path: requirements_test.txt
+
+      - name: Install test requirements
+        run: pip install -r requirements_test.txt
+
+      - name: Pin Home Assistant for this leg
+        if: matrix.phacc != ''
+        run: pip install "pytest-homeassistant-custom-component${{ matrix.phacc }}"
+
+      - name: Show versions under test
+        run: pip show homeassistant pytest-homeassistant-custom-component | grep -E "^(Name|Version)"
+
+      # No fcntl/resource shim here: tests/_win_stubs exists only because
+      # homeassistant.runner imports POSIX-only modules that Linux really has.
+      - name: Run tests
+        run: pytest -q -rs

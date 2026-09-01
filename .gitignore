@@ -2,7 +2,6 @@
 .vs/
 **/__pycache__/
 *.pyc
-.github/
 .ignore_these/
 ARCHITECTURE_sv.md
 .venv/

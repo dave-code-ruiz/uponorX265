@@ -5,10 +5,13 @@ on:
   pull_request:
   schedule:
     - cron: "0 0 * * *"
+  workflow_dispatch:
 
 jobs:
   validate:
     runs-on: "ubuntu-latest"
     steps:
-      - uses: "actions/checkout@v3"
+      - uses: "actions/checkout@v7"
+      # home-assistant/actions has no maintained version tags (only a stale
+      # 1.0.0), so @master is the ref HA's own docs point at.
       - uses: home-assistant/actions/hassfest@master
