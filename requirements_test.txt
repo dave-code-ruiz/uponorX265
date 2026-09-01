@@ -6,7 +6,7 @@
 # compat shims in custom_components/uponorx265/__init__.py, so the suite is
 # green on the 2026.9 betas.
 #
-# One consequence: the two tests in tests/test_ha_compat_shims.py cover the
+# One consequence: the three tests in tests/test_ha_compat_shims.py cover the
 # pre-2026.8 fallback branches by calling the deprecated APIs on purpose, and
 # 2026.9 raises on those, so they skip themselves there. Run the suite against
 # HA 2026.8 as well if you change the shims - see tests/README.md.
