@@ -32,8 +32,12 @@ async def test_gateway_and_controller_devices_exist_before_platform_setup(hass):
     _register_gateway_devices(hass, proxy._config_entry, UNIQUE_ID, proxy)
 
     dev_reg = dr.async_get(hass)
-    gateway_device = dev_reg.async_get_device(identifiers={(UNIQUE_ID, GATEWAY_ID)})
-    controller_device = dev_reg.async_get_device(identifiers={(UNIQUE_ID, CONTROLLER_ID)})
+    gateway_device = dev_reg.async_get_device_by_identifier(
+        (UNIQUE_ID, GATEWAY_ID), proxy._config_entry.entry_id
+    )
+    controller_device = dev_reg.async_get_device_by_identifier(
+        (UNIQUE_ID, CONTROLLER_ID), proxy._config_entry.entry_id
+    )
 
     assert gateway_device is not None, "gateway device was not registered before platform setup"
     assert controller_device is not None, "controller device was not registered before platform setup"
@@ -60,4 +64,6 @@ async def test_controller_device_registered_even_when_controller_sensor_disabled
     _register_gateway_devices(hass, proxy._config_entry, UNIQUE_ID, proxy)
 
     dev_reg = dr.async_get(hass)
-    assert dev_reg.async_get_device(identifiers={(UNIQUE_ID, CONTROLLER_ID)}) is not None
+    assert dev_reg.async_get_device_by_identifier(
+        (UNIQUE_ID, CONTROLLER_ID), proxy._config_entry.entry_id
+    ) is not None

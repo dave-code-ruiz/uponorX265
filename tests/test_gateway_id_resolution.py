@@ -91,7 +91,9 @@ async def test_failed_resolution_does_not_downgrade_existing_mac_device(hass):
     unchanged = dev_reg.async_get(stable_device.id)
     assert unchanged is not None
     assert unchanged.identifiers == {(UNIQUE_ID, MAC_FORM)}
-    assert dev_reg.async_get_device(identifiers={(UNIQUE_ID, HOST_FORM)}) is None
+    assert dev_reg.async_get_device_by_identifier(
+        (UNIQUE_ID, HOST_FORM), proxy._config_entry.entry_id
+    ) is None
 
     # The retained registry id is only a fallback; the next poll must still
     # attempt resolution and cache a confirmed MAC when ARP recovers.

@@ -37,15 +37,26 @@ def register_device(hass, entry, gateway_id, **extra):
     )
 
 
+def get_device(hass, entry, gateway_id):
+    """Look up the device holding this gateway identifier, within this entry.
+
+    async_get_device_by_identifier (HA 2026.8+) rather than async_get_device:
+    the latter is deprecated because identifiers are no longer unique across
+    config entries, and calling it from test code — where there is no
+    integration frame on the stack — raises outright from HA 2026.9.
+    """
+    dev_reg = dr.async_get(hass)
+    return dev_reg.async_get_device_by_identifier((UNIQUE_ID, gateway_id), entry.entry_id)
+
+
 async def test_renames_host_based_device_in_place(hass):
     entry = register_entry(hass)
     old_device = register_device(hass, entry, HOST_ID)
 
     _migrate_gateway_device_id(hass, entry, UNIQUE_ID, UPPER_MAC)
 
-    dev_reg = dr.async_get(hass)
-    assert dev_reg.async_get_device(identifiers={(UNIQUE_ID, HOST_ID)}) is None
-    migrated = dev_reg.async_get_device(identifiers={(UNIQUE_ID, UPPER_MAC)})
+    assert get_device(hass, entry, HOST_ID) is None
+    migrated = get_device(hass, entry, UPPER_MAC)
     assert migrated is not None
     assert migrated.id == old_device.id, "should rename the existing device, not create a new one"
 
@@ -56,9 +67,8 @@ async def test_renames_lowercase_mac_device_in_place(hass):
 
     _migrate_gateway_device_id(hass, entry, UNIQUE_ID, UPPER_MAC)
 
-    dev_reg = dr.async_get(hass)
-    assert dev_reg.async_get_device(identifiers={(UNIQUE_ID, LOWER_MAC)}) is None
-    migrated = dev_reg.async_get_device(identifiers={(UNIQUE_ID, UPPER_MAC)})
+    assert get_device(hass, entry, LOWER_MAC) is None
+    migrated = get_device(hass, entry, UPPER_MAC)
     assert migrated is not None
     assert migrated.id == old_device.id
 
@@ -74,11 +84,10 @@ async def test_renames_device_with_an_id_never_guessed_at(hass):
 
     _migrate_gateway_device_id(hass, entry, UNIQUE_ID, UPPER_MAC)
 
-    dev_reg = dr.async_get(hass)
-    assert dev_reg.async_get_device(identifiers={(UNIQUE_ID, stale_ip_based_id)}) is None, (
+    assert get_device(hass, entry, stale_ip_based_id) is None, (
         "an id that drifted away from any known format must still be migrated, not orphaned"
     )
-    migrated = dev_reg.async_get_device(identifiers={(UNIQUE_ID, UPPER_MAC)})
+    migrated = get_device(hass, entry, UPPER_MAC)
     assert migrated is not None
     assert migrated.id == old_device.id
 
@@ -109,7 +118,7 @@ async def test_merges_duplicate_left_by_a_prior_restart(hass):
         identifiers={(UNIQUE_ID, "419524869")},
         manufacturer="Uponor",
         name="Controller 1",
-        via_device=(UNIQUE_ID, HOST_ID),
+        via_device_id=old_device.id,
     )
     new_device = register_device(hass, entry, UPPER_MAC)
 
@@ -117,10 +126,10 @@ async def test_merges_duplicate_left_by_a_prior_restart(hass):
     await hass.async_block_till_done()
 
     dev_reg = dr.async_get(hass)
-    assert dev_reg.async_get_device(identifiers={(UNIQUE_ID, HOST_ID)}) is None, (
+    assert get_device(hass, entry, HOST_ID) is None, (
         "orphaned old-format device must be removed, not left behind"
     )
-    remaining = dev_reg.async_get_device(identifiers={(UNIQUE_ID, UPPER_MAC)})
+    remaining = get_device(hass, entry, UPPER_MAC)
     assert remaining is not None
     assert remaining.id == new_device.id
     assert remaining.name_by_user == "Garage Gateway", (
@@ -149,8 +158,7 @@ async def test_no_op_when_no_old_device_exists(hass):
     # creating devices is _register_gateway_devices's job, not this one's.
     _migrate_gateway_device_id(hass, entry, UNIQUE_ID, UPPER_MAC)
 
-    dev_reg = dr.async_get(hass)
-    assert dev_reg.async_get_device(identifiers={(UNIQUE_ID, UPPER_MAC)}) is None
+    assert get_device(hass, entry, UPPER_MAC) is None
 
 
 async def test_no_op_when_already_on_current_format(hass):
@@ -159,8 +167,7 @@ async def test_no_op_when_already_on_current_format(hass):
 
     _migrate_gateway_device_id(hass, entry, UNIQUE_ID, UPPER_MAC)
 
-    dev_reg = dr.async_get(hass)
-    unchanged = dev_reg.async_get_device(identifiers={(UNIQUE_ID, UPPER_MAC)})
+    unchanged = get_device(hass, entry, UPPER_MAC)
     assert unchanged is not None
     assert unchanged.id == device.id
 
@@ -177,14 +184,13 @@ async def test_ignores_controller_devices_which_have_a_via_device(hass):
         identifiers={(UNIQUE_ID, "419524869")},
         manufacturer="Uponor",
         name="Controller 1",
-        via_device=(UNIQUE_ID, HOST_ID),
+        via_device_id=gateway_device.id,
     )
 
     _migrate_gateway_device_id(hass, entry, UNIQUE_ID, UPPER_MAC)
 
-    dev_reg = dr.async_get(hass)
-    migrated = dev_reg.async_get_device(identifiers={(UNIQUE_ID, UPPER_MAC)})
+    migrated = get_device(hass, entry, UPPER_MAC)
     assert migrated is not None
     assert migrated.id == gateway_device.id
     # The controller device is untouched.
-    assert dev_reg.async_get_device(identifiers={(UNIQUE_ID, "419524869")}) is not None
+    assert get_device(hass, entry, "419524869") is not None

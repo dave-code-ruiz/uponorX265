@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import math
 import logging
 from functools import partial
@@ -244,6 +245,50 @@ def _get_registered_gateway_id(
     return min(candidates)[-1]
 
 
+# `via_device` (the parent's identifier tuple) was deprecated in HA 2026.9 in
+# favour of `via_device_id` (the parent's registry id), which landed in 2026.8.
+# Checking the signature keeps this tied to the parameter actually being asked
+# about, rather than to a version number. Drop the fallback — and pass
+# via_device_id directly — once the integration requires 2026.8 or newer.
+_SUPPORTS_VIA_DEVICE_ID = "via_device_id" in inspect.signature(
+    device_registry.DeviceRegistry.async_get_or_create
+).parameters
+
+
+def _via_device_kwargs(
+    parent: device_registry.DeviceEntry, parent_identifier: tuple[str, str]
+) -> dict:
+    """Return the async_get_or_create kwarg that links a child to its parent."""
+    if _SUPPORTS_VIA_DEVICE_ID:
+        return {"via_device_id": parent.id}
+    return {"via_device": parent_identifier}
+
+
+def _async_get_device_by_identifier(
+    dev_reg: device_registry.DeviceRegistry,
+    identifier: tuple[str, str],
+    config_entry_id: str,
+) -> device_registry.DeviceEntry | None:
+    """Look up a device by a single identifier, scoped to one config entry.
+
+    `async_get_device_by_identifier` was added in HA 2026.8, replacing
+    `async_get_device` — identifiers are no longer unique across config
+    entries, so the unscoped lookup is deprecated and breaks in HA 2027.8.
+
+    On cores older than 2026.8 the new method doesn't exist and the
+    deprecated one is the only lookup available. Falling back to it is safe
+    there: identifiers *were* still unique across entries on those versions,
+    and this integration's identifiers are namespaced by the per-entry
+    unique_instance_id anyway, so both calls resolve the same device.
+
+    Drop this shim (and call the registry directly) once the integration
+    requires 2026.8 or newer.
+    """
+    if hasattr(dev_reg, "async_get_device_by_identifier"):
+        return dev_reg.async_get_device_by_identifier(identifier, config_entry_id)
+    return dev_reg.async_get_device(identifiers={identifier})
+
+
 def _migrate_gateway_device_id(hass: HomeAssistant, config_entry: ConfigEntry, unique_instance_id: str, new_gateway_id: str) -> None:
     """Reconcile the gateway device's identifier with a newly-resolved MAC.
 
@@ -266,7 +311,9 @@ def _migrate_gateway_device_id(hass: HomeAssistant, config_entry: ConfigEntry, u
 
     dev_reg = device_registry.async_get(hass)
     new_identifier = (unique_instance_id, new_gateway_id)
-    new_device = dev_reg.async_get_device(identifiers={new_identifier})
+    new_device = _async_get_device_by_identifier(
+        dev_reg, new_identifier, config_entry.entry_id
+    )
 
     old_device = next(
         (
@@ -330,9 +377,10 @@ def _register_gateway_devices(hass: HomeAssistant, config_entry: ConfigEntry, un
     are enabled.
     """
     dev_reg = device_registry.async_get(hass)
-    dev_reg.async_get_or_create(
+    gateway_identifier = (unique_instance_id, state_proxy.get_gateway_id())
+    gateway_device = dev_reg.async_get_or_create(
         config_entry_id=config_entry.entry_id,
-        identifiers={(unique_instance_id, state_proxy.get_gateway_id())},
+        identifiers={gateway_identifier},
         manufacturer=DEVICE_MANUFACTURER,
         name=state_proxy.get_integration_name(),
         model=state_proxy.get_model(),
@@ -348,7 +396,7 @@ def _register_gateway_devices(hass: HomeAssistant, config_entry: ConfigEntry, un
             model=state_proxy.get_controller_hardware(controller),
             sw_version=state_proxy.get_controller_version(controller),
             serial_number=state_proxy.get_controller_id(controller),
-            via_device=(unique_instance_id, state_proxy.get_gateway_id()),
+            **_via_device_kwargs(gateway_device, gateway_identifier),
         )
 
 
