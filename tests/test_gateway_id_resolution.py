@@ -7,9 +7,9 @@ form was written into the cache - which the whole method is guarded on - so
 it never re-resolved. It is called once, at setup, so one failed lookup at
 boot pinned the wrong identifier for the entire session.
 
-That identifier is not cosmetic: it becomes the gateway device's identifier
-and is baked into the gateway sensor's unique_id, so the tree gets registered
-under something a later restart will not match.
+That identifier is not cosmetic: it identifies the gateway device and anchors
+the controller/thermostat device hierarchy, so identifier churn can orphan or
+duplicate registry devices.
 """
 
 import threading
@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 from homeassistant.helpers import device_registry as dr
 
+from custom_components.uponorx265 import _migrate_gateway_device_id
 from tests.helpers import make_state_proxy
 
 UNIQUE_ID = "uponorx265_test"
@@ -60,6 +61,43 @@ async def test_failed_resolution_is_not_cached(hass):
     assert proxy._gateway_id is None, (
         "the host fallback was cached, so the session can never re-resolve"
     )
+
+
+async def test_failed_resolution_does_not_downgrade_existing_mac_device(hass):
+    """A cold ARP cache must not move a stable gateway back to its host id."""
+    proxy = _proxy(hass)
+    dev_reg = dr.async_get(hass)
+    stable_device = dev_reg.async_get_or_create(
+        config_entry_id=proxy._config_entry.entry_id,
+        identifiers={(UNIQUE_ID, MAC_FORM)},
+    )
+
+    with patch("custom_components.uponorx265.get_mac_address", return_value=None), \
+         patch("custom_components.uponorx265._get_mac_with_arp_refresh", return_value=None):
+        resolved = await proxy.async_resolve_gateway_id()
+
+    assert resolved == MAC_FORM
+    assert proxy.get_gateway_id() == MAC_FORM
+    assert proxy._gateway_id is None, (
+        "a registry fallback must not be mistaken for a confirmed MAC lookup"
+    )
+
+    # This mirrors the old unconditional setup step. A host fallback here
+    # would rename the existing MAC device back to the IP-derived identifier.
+    _migrate_gateway_device_id(
+        hass, proxy._config_entry, UNIQUE_ID, resolved
+    )
+
+    unchanged = dev_reg.async_get(stable_device.id)
+    assert unchanged is not None
+    assert unchanged.identifiers == {(UNIQUE_ID, MAC_FORM)}
+    assert dev_reg.async_get_device(identifiers={(UNIQUE_ID, HOST_FORM)}) is None
+
+    # The retained registry id is only a fallback; the next poll must still
+    # attempt resolution and cache a confirmed MAC when ARP recovers.
+    with patch("custom_components.uponorx265.get_mac_address", return_value=MAC):
+        assert await proxy.async_resolve_gateway_id() == MAC_FORM
+    assert proxy._gateway_id == MAC_FORM
 
 
 async def test_a_later_attempt_can_still_resolve(hass):

@@ -217,6 +217,33 @@ def _migrate_entity_unique_ids(hass: HomeAssistant, config_entry: ConfigEntry, u
                 entry.entity_id, entry.unique_id, exc,
             )
 
+def _get_registered_gateway_id(
+    hass: HomeAssistant, config_entry: ConfigEntry, unique_instance_id: str
+) -> str | None:
+    """Return the best existing gateway identifier for an unconfirmed fallback."""
+    dev_reg = device_registry.async_get(hass)
+    candidates = []
+    for device in device_registry.async_entries_for_config_entry(
+        dev_reg, config_entry.entry_id
+    ):
+        if device.via_device_id is not None:
+            continue
+        for identifier_domain, identifier in device.identifiers:
+            if identifier_domain == unique_instance_id:
+                candidates.append(
+                    (
+                        device.model != "R-208",
+                        device.created_at,
+                        device.id,
+                        identifier,
+                    )
+                )
+
+    if not candidates:
+        return None
+    return min(candidates)[-1]
+
+
 def _migrate_gateway_device_id(hass: HomeAssistant, config_entry: ConfigEntry, unique_instance_id: str, new_gateway_id: str) -> None:
     """Reconcile the gateway device's identifier with a newly-resolved MAC.
 
@@ -387,10 +414,12 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
         await state_proxy.async_update()
         thermostats = state_proxy.get_active_thermostats()
 
-    # Must run before platform setup: device_info reads get_gateway_id(),
-    # which otherwise falls back to a host-based id for the entire session.
+    # Must run before platform setup: device_info reads get_gateway_id(). Only
+    # an authoritative MAC lookup may migrate the registry; a failed lookup
+    # retains the existing gateway identifier as an unconfirmed fallback.
     resolved_gateway_id = await state_proxy.async_resolve_gateway_id()
-    _migrate_gateway_device_id(hass, config_entry, unique_id, resolved_gateway_id)
+    if state_proxy._gateway_id is not None:
+        _migrate_gateway_device_id(hass, config_entry, unique_id, resolved_gateway_id)
 
     hass.data[unique_id] = {
         "state_proxy": state_proxy,
@@ -644,6 +673,9 @@ class UponorStateProxy:
         self._reload_in_progress = False
         self._last_reload_attempt = None
         self._gateway_id = None
+        self._registered_gateway_id = _get_registered_gateway_id(
+            hass, config_entry, unique_id
+        )
         self._stale_override_switches_cleaned = False
         _LOGGER.debug(f"Configdata = {self._config_entry}")
     # Controlers config  
@@ -723,24 +755,20 @@ class UponorStateProxy:
         return self._config_entry.data.get(CONF_NAME, DEVICE_MANUFACTURER)
 
     def get_gateway_id(self) -> str:
-        """Return cached gateway ID (MAC or host fallback)."""
-        if self._gateway_id is None:
-            # Cache not yet populated; return host fallback until async_resolve_gateway_id runs
-            return self._host.replace('.', '')
-        return self._gateway_id
+        """Return the confirmed MAC, retained registry ID, or host fallback."""
+        return (
+            self._gateway_id
+            or self._registered_gateway_id
+            or self._host.replace('.', '')
+        )
 
     async def async_resolve_gateway_id(self) -> str:
-        """Resolve the gateway MAC via ARP and cache it; fall back to the host form.
+        """Resolve and cache the gateway MAC, retaining a stable fallback.
 
-        The fallback is returned but deliberately NOT cached. Resolution can
-        fail at boot for reasons that clear up moments later - a cold ARP
-        cache, a gateway that has not answered yet - and caching the fallback
-        pinned the host-based id for the entire session. That id is not
-        cosmetic: it becomes the gateway device's identifier and is baked into
-        the gateway sensor's unique_id, so a single failed lookup at startup
-        registers the whole tree under an identifier a later restart will not
-        match, leaving an orphaned device behind. Leaving the cache empty lets
-        the next poll pick up the real MAC instead (see async_update).
+        Resolution can fail briefly at boot because the ARP cache is cold. A
+        previously registered gateway ID is retained in that case; a new
+        install uses the host form. Neither fallback is stored in _gateway_id,
+        so later polls keep trying until a MAC is authoritatively resolved.
 
         Both lookups run in the executor: getmac reads /proc/net/arp and on
         several platforms shells out to `arp` or `ip neighbor`, which is
@@ -759,12 +787,21 @@ class UponorStateProxy:
             )
 
         if mac is None:
+            # A previous successful run may already have registered a stable
+            # MAC identifier. Retain that exact identity instead of migrating
+            # it backwards to the IP-derived fallback after one failed lookup.
+            if self._registered_gateway_id is None:
+                self._registered_gateway_id = _get_registered_gateway_id(
+                    self._hass, self._config_entry, self._unique_id
+                )
+            fallback_id = self.get_gateway_id()
             _LOGGER.warning(
-                "Could not resolve MAC address for %s; using the host-based id "
+                "Could not resolve MAC address for %s; retaining gateway id %s "
                 "until it resolves on a later poll",
                 self._host,
+                fallback_id,
             )
-            return self.get_gateway_id()
+            return fallback_id
 
         self._gateway_id = mac.replace(':', '').upper()
         return self._gateway_id
@@ -776,8 +813,10 @@ class UponorStateProxy:
             return
 
         _LOGGER.info(
-            "Resolved gateway MAC for %s after starting on the host-based id: %s",
-            self._host, resolved,
+            "Resolved gateway MAC for %s after starting on fallback id %s: %s",
+            self._host,
+            self._registered_gateway_id or self._host.replace('.', ''),
+            resolved,
         )
         _migrate_gateway_device_id(
             self._hass, self._config_entry, self._unique_id, resolved
