@@ -1200,12 +1200,6 @@ class UponorStateProxy:
     def get_model(self):
         return "R-208"
 
-    def get_sw_version(self):
-        var = 'cust_SW_version_update'
-        if var in self._data:
-            return self._data[var].split('_')[0]
-        return '-'
-
     def get_version(self, thermostat):
         var = thermostat + '_sw_version'
         if var in self._data:
