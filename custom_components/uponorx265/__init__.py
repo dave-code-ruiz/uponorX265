@@ -934,6 +934,11 @@ class UponorStateProxy:
     # -------------------------------------------------------------------------
 
     async def async_load_storage(self):
+        async with self._storage_lock:
+            await self._async_load_storage_unlocked()
+
+    async def _async_load_storage_unlocked(self):
+        """Load storage while the caller holds _storage_lock."""
         data = await self._store.async_load()
         if not isinstance(data, dict):
             self._storage_data = {}
@@ -969,77 +974,77 @@ class UponorStateProxy:
         if not thermostats:
             return
 
-        # Merge with previously cached thermostats so that a transient JNAP
-        # response missing one thermostat does not permanently remove it from
-        # cache and cause its entity to be missing after the next HA restart.
-        cached_controllers = self._storage_metadata.get("controllers", [])
-        merged_controllers = list(dict.fromkeys(
-            controllers + [t for t in cached_controllers if t not in controllers]        
-        ))
-        
-        cached_thermostats = self._storage_metadata.get("thermostats", [])
-        merged_thermostats = list(dict.fromkeys(
-            thermostats + [t for t in cached_thermostats if t not in thermostats]
-        ))
+        async with self._storage_lock:
+            # Merge with previously cached thermostats so that a transient
+            # JNAP response missing one thermostat does not permanently remove
+            # it from cache and hide its entity after the next HA restart.
+            cached_controllers = self._storage_metadata.get("controllers", [])
+            merged_controllers = list(dict.fromkeys(
+                controllers + [t for t in cached_controllers if t not in controllers]
+            ))
 
-        new_metadata = {
-            "gateway_id": self._data.get('cust_ip_device'),
-            "controllers": merged_controllers,
-            "controller_names" : {
-                **self._storage_metadata.get("controller_names", {}),
-                **{
-                    controller: controller_name
-                    for controller in self.get_active_controllers()
-                    if (controller_name := self.get_controller_name(controller))
-                },
-            },
-            "controller_ids": {
-                **self._storage_metadata.get("controller_ids", {}),
-                **{
-                    controller: controller_id
-                    for controller in self.get_active_controllers()
-                    if (controller_id := self.get_controller_id(controller))
-                },
-            },
-            "thermostats": merged_thermostats,
-            "ids": {
-                **self._storage_metadata.get("ids", {}),
-                **{
-                    thermostat: thermostat_id
-                    for thermostat in thermostats
-                    if (thermostat_id := self._get_thermostat_id_from_data(thermostat))
-                },
-            },
-            "rooms": {
-                **self._storage_metadata.get("rooms", {}),
-                **{
-                    thermostat: room_name
-                    for thermostat in thermostats
-                    if (room_name := self._get_room_name_from_data(thermostat))
-                },
-            },
-            "models": {
-                **self._storage_metadata.get("models", {}),
-                **{
-                    thermostat: model
-                    for thermostat in thermostats
-                    if (model := self._detect_thermostat_model(thermostat))
-                },
-            },
-            "humidity": list(dict.fromkeys(
-                [thermostat for thermostat in thermostats if thermostat + '_rh' in self._data and int(self._data[thermostat + '_rh']) != 0]
-                + self._storage_metadata.get("humidity", [])
-            )),
-            "floor": list(dict.fromkeys(
-                [thermostat for thermostat in thermostats if thermostat + '_external_temperature' in self._data and int(self._data[thermostat + '_external_temperature']) != 32767]
-                + self._storage_metadata.get("floor", [])
-            )),
-            "cooling_available": self._data.get('sys_cooling_available') == "1",
-        }
+            cached_thermostats = self._storage_metadata.get("thermostats", [])
+            merged_thermostats = list(dict.fromkeys(
+                thermostats + [t for t in cached_thermostats if t not in thermostats]
+            ))
 
-        if new_metadata != self._storage_metadata:
-            self._storage_metadata = new_metadata
-            async with self._storage_lock:
+            new_metadata = {
+                "gateway_id": self._data.get('cust_ip_device'),
+                "controllers": merged_controllers,
+                "controller_names" : {
+                    **self._storage_metadata.get("controller_names", {}),
+                    **{
+                        controller: controller_name
+                        for controller in self.get_active_controllers()
+                        if (controller_name := self.get_controller_name(controller))
+                    },
+                },
+                "controller_ids": {
+                    **self._storage_metadata.get("controller_ids", {}),
+                    **{
+                        controller: controller_id
+                        for controller in self.get_active_controllers()
+                        if (controller_id := self.get_controller_id(controller))
+                    },
+                },
+                "thermostats": merged_thermostats,
+                "ids": {
+                    **self._storage_metadata.get("ids", {}),
+                    **{
+                        thermostat: thermostat_id
+                        for thermostat in thermostats
+                        if (thermostat_id := self._get_thermostat_id_from_data(thermostat))
+                    },
+                },
+                "rooms": {
+                    **self._storage_metadata.get("rooms", {}),
+                    **{
+                        thermostat: room_name
+                        for thermostat in thermostats
+                        if (room_name := self._get_room_name_from_data(thermostat))
+                    },
+                },
+                "models": {
+                    **self._storage_metadata.get("models", {}),
+                    **{
+                        thermostat: model
+                        for thermostat in thermostats
+                        if (model := self._detect_thermostat_model(thermostat))
+                    },
+                },
+                "humidity": list(dict.fromkeys(
+                    [thermostat for thermostat in thermostats if thermostat + '_rh' in self._data and int(self._data[thermostat + '_rh']) != 0]
+                    + self._storage_metadata.get("humidity", [])
+                )),
+                "floor": list(dict.fromkeys(
+                    [thermostat for thermostat in thermostats if thermostat + '_external_temperature' in self._data and int(self._data[thermostat + '_external_temperature']) != 32767]
+                    + self._storage_metadata.get("floor", [])
+                )),
+                "cooling_available": self._data.get('sys_cooling_available') == "1",
+            }
+
+            if new_metadata != self._storage_metadata:
+                self._storage_metadata = new_metadata
                 await self._store.async_save(self._compose_storage_payload())
 
     # -------------------------------------------------------------------------
@@ -1352,7 +1357,7 @@ class UponorStateProxy:
         off_temp = self.get_max_limit(thermostat) if self.is_cool_enabled() else self.get_min_limit(thermostat)
         current = self.get_setpoint(thermostat)
         async with self._storage_lock:
-            await self.async_load_storage()
+            await self._async_load_storage_unlocked()
             if current != off_temp:
                 # Don't record the off value itself as the restore target.
                 self._storage_data[thermostat] = current
@@ -1362,7 +1367,7 @@ class UponorStateProxy:
     async def async_remember_setpoint(self, thermostat, temp):
         """Record a target temperature requested while the room is off, so turn_on restores it."""
         async with self._storage_lock:
-            await self.async_load_storage()
+            await self._async_load_storage_unlocked()
             self._storage_data[thermostat] = temp
             await self._store.async_save(self._compose_storage_payload())
 

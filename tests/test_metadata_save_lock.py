@@ -1,4 +1,4 @@
-"""The discovery-metadata save must take the same storage lock as the memo writes.
+"""The discovery-metadata transaction must take the memo writers' storage lock.
 
 _async_persist_discovery_metadata() composes its payload from self._storage_data
 and writes the whole file. It runs on every poll, concurrently with whatever
@@ -57,6 +57,47 @@ async def test_metadata_refresh_does_not_clobber_a_concurrent_turn_off_memo(hass
     )
     assert proxy._storage_metadata.get("rooms", {}).get(THERMOSTAT) == "Master Bedroom", (
         "discovery metadata was lost"
+    )
+
+
+async def test_writer_that_started_first_does_not_erase_new_metadata(hass):
+    """The lock must cover metadata composition and assignment, not just save."""
+    proxy = make_state_proxy(hass, data=_discoverable_data())
+    real_load = proxy._store.async_load
+    load_started = asyncio.Event()
+    release_load = asyncio.Event()
+
+    async def blocked_load():
+        load_started.set()
+        await release_load.wait()
+        return await real_load()
+
+    proxy._store.async_load = blocked_load
+    memo_task = asyncio.create_task(
+        proxy.async_remember_setpoint(THERMOSTAT, 21.0)
+    )
+    await asyncio.wait_for(load_started.wait(), timeout=5)
+
+    # The memo writer owns _storage_lock but is suspended in its load. The old
+    # implementation published new metadata now, before waiting for the lock;
+    # the writer then replaced it with the older snapshot it had loaded.
+    metadata_task = asyncio.create_task(proxy._async_persist_discovery_metadata())
+    await asyncio.sleep(0)
+    release_load.set()
+
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(memo_task, metadata_task),
+            timeout=5,
+        )
+    finally:
+        proxy._store.async_load = real_load
+
+    await proxy.async_load_storage()
+    assert proxy._storage_data.get(THERMOSTAT) == 21.0
+    assert proxy._storage_metadata.get("thermostats") == [THERMOSTAT]
+    assert proxy._storage_metadata.get("rooms", {}).get(THERMOSTAT) == "Master Bedroom", (
+        "the writer's older storage load erased metadata composed outside the lock"
     )
 
 
