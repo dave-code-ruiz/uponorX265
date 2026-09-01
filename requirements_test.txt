@@ -13,7 +13,3 @@
 pytest-homeassistant-custom-component
 pytest-asyncio
 tzdata; sys_platform == "win32"
-
-# The integration's own manifest requirement - imported at module scope by
-# custom_components/uponorx265/__init__.py, so collection fails without it.
-getmac

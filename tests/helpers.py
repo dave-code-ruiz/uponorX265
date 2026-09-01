@@ -31,6 +31,9 @@ def make_state_proxy(hass, data=None, entry_data=None, unique_id="uponorx265_tes
     store = Store(hass, STORAGE_VERSION, f"{STORAGE_KEY}_{unique_id}")
     proxy = UponorStateProxy(hass, "10.0.0.1", None, store, unique_id, entry)
     proxy._client = AsyncMock()
+    # The gateway core action is optional; default it to "not answered" so a
+    # test only sees device info when it opts in.
+    proxy._client.get_device_info.return_value = {}
 
     if data:
         proxy._data.update(data)

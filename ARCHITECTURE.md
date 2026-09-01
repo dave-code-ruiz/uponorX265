@@ -21,16 +21,40 @@ Home Assistant custom integration that connects to an **Uponor Smatrix Pulse** g
 ### State layer — [__init__.py](custom_components/uponorx265/__init__.py)
 `UponorStateProxy` is the central class: keeps the raw data (`_data`) in memory, polls the gateway on `SCAN_INTERVAL` (30s), and exposes typed getters/setters (`get_setpoint`, `async_set_target_temperature`, `get_bypass_enable`, etc.) that the platform files build entities from. On every update, `SIGNAL_UPONOR_STATE_UPDATE` is sent via HA's dispatcher so all entities update at once. Data is also cached in `Store` (per config entry) for fast restarts. The module also registers the integration's services (`set_variable`, `dump_hardware_info`, `dump_raw_data`).
 
-### Gateway ID (MAC resolution) — [__init__.py](custom_components/uponorx265/__init__.py) / [helper.py](custom_components/uponorx265/helper.py)
-The gateway's `device_info` identifier and serial number are based on its MAC address when it can be resolved, otherwise it falls back to a host-based ID (the IP address with dots stripped). `UponorStateProxy.async_resolve_gateway_id()` runs in `async_setup_entry` before the platforms are set up (since `device_info` reads `get_gateway_id()`), and tries, in order:
+### Gateway ID (MAC address) — [__init__.py](custom_components/uponorx265/__init__.py)
+The gateway's `device_info` identifier is based on its MAC address when it can be resolved, otherwise it falls back to a host-based ID (the IP address with dots stripped). `UponorStateProxy.async_resolve_gateway_id()` runs in `async_setup_entry` before the platforms are set up (since `device_info` reads `get_gateway_id()`).
 
-1. `get_mac_address(ip=host)` directly — works if the OS's ARP cache already has an entry.
-2. `_get_mac_with_arp_refresh()` in [helper.py](custom_components/uponorx265/helper.py) — primes the ARP cache by actually sending data over a UDP socket (not just `connect()`, which doesn't guarantee anything is sent), then tries `getmac` again, and as a last resort reads `/proc/net/arp` directly (for HA installs in Docker where the `arp`/`ip neighbor` binaries may be missing from the container).
-3. The MAC address is uppercased (`.upper()`) before being used as the ID.
+The MAC is **read from the gateway**, not inferred from the network: the JNAP core action `http://phyn.com/jnap/core/GetDeviceInfo` reports it as `deviceID` (e.g. `AA:BB:CC:DD:EE:FF`), which is uppercased and stripped of colons before being used as the ID. The same response carries the gateway's printed serial number, hardware version and firmware (`firmwareNumber`, the value the Uponor app displays) — none of which appear anywhere in the `uponorsky/GetAttributes` variable set, because that set describes the controllers and thermostats *behind* the comm module rather than the module itself. See "Gateway device info" below.
 
-**Important limitation:** ARP only works within the same broadcast domain/subnet. If the HA host and the gateway are on different subnets/VLANs, the MAC address can never be resolved (the kernel never gets an ARP entry for it). A new installation then uses the host-based ID; if a stable gateway identifier is already registered, transient lookup failures retain that identifier instead of migrating it back to the current host form.
+If the gateway does not report a `deviceID`, a previously registered stable identifier is retained; a new installation uses the host-based form. Neither fallback is cached as a confirmed result, so later polls keep retrying and `_async_retry_gateway_id()` repairs the registry once a real MAC arrives.
+
+> **Historical note.** Until this was found, the MAC was resolved with `getmac` plus a hand-rolled ARP-cache prime (a UDP socket sent to force an ARP entry, then a direct read of `/proc/net/arp` for containers without `arp`/`ip neighbor`). That approach needed an executor hop to stay off the event loop, returned nothing on a cold ARP cache — the drift that left an orphaned gateway device behind — and was documented here as having an **unfixable limitation**: ARP only works within one broadcast domain, so a gateway on another subnet or VLAN could never be identified. That limitation was an artefact of the lookup method, not of the protocol. Asking the device works across subnets, and the `getmac` dependency is gone.
 
 Since the gateway ID's format can change over time (host-based → lowercase MAC → uppercase MAC, in the order the integration has evolved), `_migrate_gateway_device_id()` handles transitions backed by a confirmed MAC lookup. Rather than guessing at specific old id strings, it identifies the old device *structurally*: for a given config entry there is exactly one device with no `via_device` (the root of the gateway/controller/thermostat hierarchy), whatever identifier it currently happens to hold. It renames that device's identifier in place if no device already exists under the new identifier, or safely moves attached entities and child devices before removing a duplicate. The confirmed MAC and the retained registry fallback are stored separately so a failed lookup cannot cause MAC → IP → MAC identifier oscillation, while later polls can still retry resolution.
+
+### Gateway device info (the JNAP surface) — [jnap.py](custom_components/uponorx265/jnap.py)
+The gateway speaks JNAP at `http://<host>/JNAP/`, dispatching on an `x-jnap-action` header. Probing every plausible action across the five services it advertises (`attribute`, `core`, `setup`, `update`, `uponorsky`) turns up exactly **three** that answer:
+
+| Action | Returns |
+|---|---|
+| `http://phyn.com/jnap/uponorsky/GetAttributes` | every variable (~1300) — controllers, thermostats, system settings. The integration's `get_data()`. |
+| `http://phyn.com/jnap/core/GetDeviceInfo` | the comm module's own identity — see below. |
+| `http://phyn.com/jnap/update/GetFirmwareUpdateSettings` | `{"isAutoFirmwareUpdateEnabled": true}` — the *gateway's* firmware auto-update, distinct from `cust_Enable_SW_Update`, which governs controller firmware distribution. |
+
+`uponorsky/SetAttributes` writes; `uponorsky/GetAttribute` (singular) exists for targeted reads but expects an input schema that has not been worked out, and offers nothing the bulk call does not. Everything else returns `_ErrorUnknownAction`. **There is no separate thermostat or controller dump** — `GetAttributes` is the entire data surface, which is why `dump_raw_data` returning it is genuinely everything available.
+
+`core/GetDeviceInfo` takes an empty payload and returns the fields the attribute set has no equivalent for:
+
+```
+deviceID:        AA:BB:CC:DD:EE:FF          -> the gateway ID, uppercased and de-colonned
+serialNumber:    000000XX000000             -> device_info serial_number (the printed one)
+hardwareVersion: 1                          -> device_info hw_version
+firmwareNumber:  20006006                   -> device_info sw_version; matches the Uponor app
+firmwareVersion: Sky_smatrixrelease_2_0_6_6_locked
+deviceName / manufacturer / productCode / description / firmwareDate / services
+```
+
+`firmwareNumber` and `firmwareVersion` carry the same version in two renderings (`2_0_6_6` -> `20006006`); the app shows the number, so that is what the device page shows. `UponorStateProxy.async_load_device_info()` fetches this once per setup and is best-effort — a gateway that does not answer keeps a fully working attribute set, so a failure must not fail setup. It is deliberately not cached on failure, because the gateway ID depends on it and a later poll must be free to retry.
 
 ### Device registration ordering — [__init__.py](custom_components/uponorx265/__init__.py)
 Thermostat and controller entities declare a `via_device` pointing at their parent (controller, then gateway) in their `device_info`. Historically the parent device only ever got created as a side effect of a specific entity — a controller status sensor, gated behind the optional `CONF_CREATE_CONTROLLERS` — which lives in the `SENSOR` platform, loaded *after* `CLIMATE` and `SWITCH` in `PLATFORMS`. HA would log a `via_device` referencing a non-existing device warning and eventually stop honoring it, and if the controller sensor was disabled the parent device was never created at all.

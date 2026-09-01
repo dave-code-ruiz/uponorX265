@@ -64,7 +64,7 @@ async def _removable(hass, proxy, identifier, loaded=True):
 async def test_stale_gateway_device_is_removable(hass):
     proxy = _proxy(hass)
     # The pre-MAC identifier scheme: host IP with the dots stripped.
-    assert await _removable(hass, proxy, "1921681182") is True
+    assert await _removable(hass, proxy, "192168110") is True
 
 
 async def test_live_gateway_device_is_not_removable(hass):
@@ -97,7 +97,7 @@ async def test_unknown_thermostat_device_is_removable(hass):
 async def test_nothing_is_removable_while_the_entry_is_unloaded(hass):
     proxy = _proxy(hass)
     # hass.data never populated: the live set is unknown, so refuse.
-    assert await _removable(hass, proxy, "1921681182", loaded=False) is False
+    assert await _removable(hass, proxy, "192168110", loaded=False) is False
 
 
 async def test_home_assistant_reports_the_integration_supports_device_removal(hass):

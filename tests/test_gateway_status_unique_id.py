@@ -19,8 +19,8 @@ from custom_components.uponorx265.const import DOMAIN
 from tests.helpers import make_state_proxy
 
 UID = "uponorx265_test"
-HOST_FORM = "1921681182"
-MAC_FORM = "28F5374E5A24"
+HOST_FORM = "192168110"
+MAC_FORM = "AABBCCDDEEFF"
 CANONICAL = f"{UID}_gateway_status"
 
 

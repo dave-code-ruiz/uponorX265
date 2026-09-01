@@ -2,7 +2,6 @@ import asyncio
 import inspect
 import math
 import logging
-from functools import partial
 
 import voluptuous as vol
 
@@ -18,7 +17,6 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers import device_registry, entity_registry
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from getmac import get_mac_address
 
 import homeassistant.util.dt as dt_util
 
@@ -57,7 +55,7 @@ from .const import (
     THERMOSTAT_MODELS
 )
 from .jnap import UponorJnap
-from .helper import get_unique_id_from_config_entry, _get_mac_with_arp_refresh 
+from .helper import get_unique_id_from_config_entry
 
 from homeassistant.components.climate.const import (
     PRESET_AWAY,
@@ -384,7 +382,9 @@ def _register_gateway_devices(hass: HomeAssistant, config_entry: ConfigEntry, un
         manufacturer=DEVICE_MANUFACTURER,
         name=state_proxy.get_integration_name(),
         model=state_proxy.get_model(),
-        serial_number=state_proxy.get_gateway_id(),
+        sw_version=state_proxy.get_gateway_sw_version(),
+        hw_version=state_proxy.get_gateway_hw_version(),
+        serial_number=state_proxy.get_gateway_serial(),
     )
     controllers = state_proxy.get_active_controllers() or state_proxy.get_cached_controllers()
     for controller in controllers:
@@ -398,6 +398,55 @@ def _register_gateway_devices(hass: HomeAssistant, config_entry: ConfigEntry, un
             serial_number=state_proxy.get_controller_id(controller),
             **_via_device_kwargs(gateway_device, gateway_identifier),
         )
+
+
+def _refresh_device_metadata(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    unique_instance_id: str,
+    state_proxy,
+    thermostats,
+) -> None:
+    """Rewrite device model and firmware once live data has actually arrived.
+
+    On a cached startup the first update is dispatched as a background task,
+    so platform setup - and every `device_info` evaluated by it - runs against
+    an empty `_data`. Values with a cached fallback survive that: the
+    thermostat model is persisted in the discovery metadata, so it resolves.
+    Everything read straight from `_data` resolves to None, and stays None for
+    the whole session, because `device_info` is only consulted when an entity
+    is added. That is what leaves the controller model and every firmware
+    version blank on the device pages while `dump_hardware_info` - which reads
+    the same getters live - reports all of them correctly.
+
+    Re-running the registration with populated data reconciles both. It is
+    done once per setup rather than on every poll: these values change only
+    when hardware is swapped or firmware is flashed, and both mean a restart.
+    """
+    _register_gateway_devices(hass, config_entry, unique_instance_id, state_proxy)
+
+    dev_reg = device_registry.async_get(hass)
+    for thermostat in thermostats:
+        identifier = (unique_instance_id, state_proxy.get_thermostat_id(thermostat))
+        device = _async_get_device_by_identifier(
+            dev_reg, identifier, config_entry.entry_id
+        )
+        if device is None:
+            continue
+
+        updates = {}
+        model = state_proxy.get_thermostat_model(thermostat)
+        if model is not None and model != device.model:
+            updates["model"] = model
+        sw_version = state_proxy.get_version(thermostat)
+        if sw_version is not None and sw_version != device.sw_version:
+            updates["sw_version"] = sw_version
+
+        if updates:
+            _LOGGER.debug(
+                "Refreshing device metadata for %s: %s", thermostat, updates
+            )
+            dev_reg.async_update_device(device.id, **updates)
 
 
 def _remove_unsupported_local_override_entities(hass: HomeAssistant, config_entry: ConfigEntry, unique_instance_id: str, state_proxy, thermostats) -> None:
@@ -641,6 +690,13 @@ def _create_dump_hardware_handler(hass: HomeAssistant):
             gateway = {
                 "gateway_id": proxy.get_gateway_id(),
                 "gateway_model": proxy.get_model(),
+                "gateway_serial": proxy.get_gateway_serial(),
+                "gateway_hw_version": proxy.get_gateway_hw_version(),
+                # firmwareNumber is what the Uponor app shows; firmwareVersion
+                # is the same value in dotted form. Both are dumped so a report
+                # can be matched against either.
+                "gateway_sw_version": proxy.get_gateway_sw_version(),
+                "gateway_firmware_version": proxy._device_info.get("firmwareVersion"),
                 "controllers": [],
                 "thermostats": [],
             }
@@ -666,6 +722,15 @@ def _create_dump_hardware_handler(hass: HomeAssistant):
                     "thermostat": thermostat,
                     "sn_start": t_id[:4] if t_id else None,
                     "hardware_type_raw": proxy._data.get(thermostat + '_thermostat_type'),
+                    # _hw_type is what actually separates the parallel Wave and
+                    # Base ranges (issue #36), so a report is not diagnosable
+                    # without it. sw_version is dumped raw as well as formatted:
+                    # the controller encoding is confirmed (289 -> "1.21", and
+                    # the firmware image is X265_121.hex), the thermostat one
+                    # is not, and only the raw value can settle it.
+                    "hw_type_raw": proxy._data.get(thermostat + '_hw_type'),
+                    "sw_version_raw": proxy._data.get(thermostat + '_sw_version'),
+                    "sw_version": proxy.get_version(thermostat),
                     "detected_model": str(proxy.get_thermostat_model(thermostat)),
                     "has_humidity_control": proxy.has_humidity_control(thermostat),
                     "has_humidity_sensor": proxy.has_humidity_sensor(thermostat),
@@ -725,6 +790,8 @@ class UponorStateProxy:
             hass, config_entry, unique_id
         )
         self._stale_override_switches_cleaned = False
+        self._device_metadata_refreshed = False
+        self._device_info = {}
         _LOGGER.debug(f"Configdata = {self._config_entry}")
     # Controlers config  
     def get_active_controllers(self):
@@ -813,28 +880,29 @@ class UponorStateProxy:
     async def async_resolve_gateway_id(self) -> str:
         """Resolve and cache the gateway MAC, retaining a stable fallback.
 
-        Resolution can fail briefly at boot because the ARP cache is cold. A
-        previously registered gateway ID is retained in that case; a new
-        install uses the host form. Neither fallback is stored in _gateway_id,
-        so later polls keep trying until a MAC is authoritatively resolved.
+        The gateway reports its own MAC as `deviceID` in the JNAP core action,
+        so this is a read rather than a network-topology guess. That replaces
+        the previous getmac/ARP lookup, which could only see a gateway on the
+        same broadcast domain, needed an executor hop to stay off the event
+        loop, and returned nothing at all on a cold ARP cache - the drift that
+        left an orphaned gateway device behind.
 
-        Both lookups run in the executor: getmac reads /proc/net/arp and on
-        several platforms shells out to `arp` or `ip neighbor`, which is
-        exactly what Home Assistant's blocking-call detector flags.
+        The normalised form is unchanged ("AA:BB:CC:DD:EE:FF" -> "AABBCCDDEEFF"), so
+        an install that already resolved a MAC keeps the exact identifier it
+        registered and nothing migrates.
+
+        A gateway that does not answer the core action keeps a previously
+        registered id, or the host form on a new install. Neither fallback is
+        stored in _gateway_id, so later polls keep trying.
         """
         if self._gateway_id is not None:
             return self._gateway_id
 
-        mac = await self._hass.async_add_executor_job(
-            partial(get_mac_address, ip=self._host)
-        )
-        _LOGGER.debug("Direct get_mac_address(%s) (no ARP priming) returned: %s", self._host, mac)
-        if mac is None:
-            mac = await self._hass.async_add_executor_job(
-                _get_mac_with_arp_refresh, self._host
-            )
+        await self.async_load_device_info()
+        mac = self._device_info.get("deviceID")
+        _LOGGER.debug("JNAP GetDeviceInfo deviceID for %s returned: %s", self._host, mac)
 
-        if mac is None:
+        if not mac:
             # A previous successful run may already have registered a stable
             # MAC identifier. Retain that exact identity instead of migrating
             # it backwards to the IP-derived fallback after one failed lookup.
@@ -844,7 +912,7 @@ class UponorStateProxy:
                 )
             fallback_id = self.get_gateway_id()
             _LOGGER.warning(
-                "Could not resolve MAC address for %s; retaining gateway id %s "
+                "Gateway %s did not report a deviceID; retaining gateway id %s "
                 "until it resolves on a later poll",
                 self._host,
                 fallback_id,
@@ -922,7 +990,11 @@ class UponorStateProxy:
     def get_controller_version(self, controller):
         var = controller + '_sw_version'
         if var in self._data:
-            hexver = hex(int(self._data[var])).replace('0x', '')
+            # Uppercase for the same reason as get_version: the encoding is
+            # hex. Controller versions observed so far are all digits
+            # (289 -> "1.21", matching the X265_121.hex image name), so this
+            # only shows up on a revision that reaches A-F.
+            hexver = hex(int(self._data[var])).replace('0x', '').upper()
             return hexver[:-2] + '.' + hexver[-2:]
         return None
 
@@ -1200,10 +1272,54 @@ class UponorStateProxy:
     def get_model(self):
         return "R-208"
 
+    async def async_load_device_info(self):
+        """Fetch the gateway's own identity once per setup.
+
+        Best-effort: a gateway that does not answer the core action still has
+        a fully working attribute set, so a failure here must not take the
+        integration down with it.
+        """
+        if self._device_info:
+            return
+        try:
+            self._device_info = await self._client.get_device_info() or {}
+        except Exception as exc:  # pylint: disable=broad-except
+            # Left empty rather than marked failed: the gateway id depends on
+            # this, so a later poll must be free to try again.
+            _LOGGER.debug("Could not read gateway device info: %s", exc)
+            return
+        _LOGGER.debug("Gateway device info: %s", self._device_info)
+
+    def get_gateway_sw_version(self):
+        """The comm module's firmware, as the Uponor app reports it.
+
+        The app shows the plain firmwareNumber (e.g. 20006006), so that is
+        what is surfaced here - an owner comparing the two sees the same
+        string. firmwareVersion carries the same value in dotted form
+        ("Sky_smatrixrelease_2_0_6_6_locked" -> 2.0.6.6) and is in the
+        hardware dump for anyone who wants it.
+        """
+        number = self._device_info.get("firmwareNumber")
+        return str(number) if number is not None else None
+
+    def get_gateway_hw_version(self):
+        version = self._device_info.get("hardwareVersion")
+        return str(version) if version is not None else None
+
+    def get_gateway_serial(self):
+        """The printed serial, falling back to the identifier when unknown."""
+        return self._device_info.get("serialNumber") or self.get_gateway_id()
+
     def get_version(self, thermostat):
+        """The thermostat's firmware revision, e.g. raw 12 -> "C".
+
+        Uponor renders these as uppercase hex; a thermostat revision is a
+        single digit, so it is shown without the major/minor split that
+        get_controller_version applies.
+        """
         var = thermostat + '_sw_version'
         if var in self._data:
-            return hex(int(self._data[var])).replace("0x", "")
+            return hex(int(self._data[var])).replace("0x", "").upper()
         return None
 
     # -------------------------------------------------------------------------
@@ -1495,6 +1611,17 @@ class UponorStateProxy:
                 if not self._stale_override_switches_cleaned:
                     self._stale_override_switches_cleaned = True
                     _remove_unsupported_local_override_entities(
+                        self._hass, self._config_entry, self._unique_id,
+                        self, self.get_active_thermostats(),
+                    )
+
+                # device_info was evaluated during platform setup, which on a
+                # cached startup happens before any live data exists. Now that
+                # it does, reconcile the registry with it.
+                await self.async_load_device_info()
+                if not self._device_metadata_refreshed:
+                    self._device_metadata_refreshed = True
+                    _refresh_device_metadata(
                         self._hass, self._config_entry, self._unique_id,
                         self, self.get_active_thermostats(),
                     )

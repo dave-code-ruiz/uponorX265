@@ -16,8 +16,8 @@ from custom_components.uponorx265 import DOMAIN, _migrate_gateway_device_id
 
 UNIQUE_ID = "uponorx265_test"
 HOST_ID = "101683"  # "10.1.6.83".replace('.', '')
-LOWER_MAC = "28f5374ea402"
-UPPER_MAC = "28F5374EA402"
+LOWER_MAC = "aabbccddeeff"
+UPPER_MAC = "AABBCCDDEEFF"
 
 
 def register_entry(hass):

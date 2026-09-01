@@ -30,6 +30,26 @@ class UponorJnap:
             if isinstance(item, dict) and "waspVarName" in item and "waspVarValue" in item
         }
 
+    async def get_device_info(self):
+        """The gateway's own identity, from the JNAP core action.
+
+        Deliberately a separate call from get_data(): the R-208's MAC,
+        serial number and firmware are not in the uponorsky attribute set at
+        all, which is why the gateway device had no firmware to show. The
+        attribute set describes the controllers and thermostats behind the
+        comm module, not the comm module itself.
+        """
+        res = await self.post(
+            headers={"x-jnap-action": "http://phyn.com/jnap/core/GetDeviceInfo"},
+            payload={},
+        )
+        output = res.get("output")
+        if not isinstance(output, dict):
+            raise ValueError(
+                f"Unexpected JNAP response: missing 'output'. keys={list(res.keys())}"
+            )
+        return output
+
     async def send_data(self, data):
         payload = {
             "vars": [
