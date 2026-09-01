@@ -40,14 +40,34 @@ This is only about *importability*. Nothing in the suite runs Home Assistant's
 CLI entrypoint, so neither the single-instance lock nor the file-descriptor
 limit is ever exercised.
 
-## Why the HA version is pinned
+## Which HA version the suite runs against
 
-`requirements_test.txt` pins `pytest-homeassistant-custom-component==0.13.357`
-(Home Assistant 2026.8.3), the newest release tracking a *stable* HA. Later
-releases pull the 2026.9 betas, which promote `device_registry.async_get_device`
-from a deprecation warning to a hard `RuntimeError`. The integration calls it at
-[`__init__.py:269`](../custom_components/uponorx265/__init__.py#L269), and the
-device-registry tests call it directly, so 11 tests fail on the beta.
+`requirements_test.txt` no longer pins `pytest-homeassistant-custom-component`.
+It was pinned to `0.13.357` (HA 2026.8.3) while the integration still called
+`device_registry.async_get_device`, which HA 2026.9 promotes from a deprecation
+warning to a hard `RuntimeError`. Those calls now go through the compat shims in
+[`__init__.py`](../custom_components/uponorx265/__init__.py), so the suite is
+green on the 2026.9 betas and the pin is gone.
 
-Migrating those calls to `async_get_device_by_identifier` is what unblocks the
-pin — that work is not done yet.
+### The one thing to watch
+
+The shims prefer the HA 2026.8+ APIs (`async_get_device_by_identifier`,
+`via_device_id`) and fall back to the older ones on earlier cores. Nothing
+declares a minimum HA version, so those fallbacks are still live for users on
+old cores — and the only thing covering them is
+[`test_ha_compat_shims.py`](test_ha_compat_shims.py), which exercises them by
+calling the deprecated APIs on purpose.
+
+HA 2026.9 raises on exactly those APIs, so on a 2026.9+ core those two tests
+skip themselves rather than fail. That is the honest outcome — the branches are
+unreachable there, not broken — but it does mean **a run on latest alone leaves
+the fallbacks uncovered**. If you touch the shims, run against both:
+
+```powershell
+.venv\Scripts\python.exe -m pytest                                    # latest: 76 passed, 2 skipped
+.venv\Scripts\python.exe -m pip install "pytest-homeassistant-custom-component==0.13.357"
+.venv\Scripts\python.exe -m pytest                                    # HA 2026.8: 78 passed
+```
+
+The fallbacks can be deleted outright — along with those tests — once the
+integration declares a minimum of HA 2026.8.

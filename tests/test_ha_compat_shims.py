@@ -11,13 +11,19 @@ core they are dead code until an old-HA user hits them — so these tests force
 each fallback and assert it resolves the same device / builds the same
 hierarchy as the modern path.
 
-Both old APIs still function (deprecated) on the pinned 2026.8.3, so the
-fallbacks stay exercisable. They are reached here through integration code
-rather than called directly from the test, which also matches how HA reports
-the deprecation: a custom-integration frame downgrades it to a log line,
-whereas a direct call from test code raises outright from 2026.9.
+Both old APIs still function (deprecated) on HA 2026.8, so the fallbacks stay
+exercisable there. HA 2026.9 promotes both to a hard RuntimeError, which makes
+the branches unreachable rather than wrong - so these tests skip themselves on
+such a core (see the autouse fixture below). Run against HA 2026.8 to cover
+them.
+
+They are reached here through integration code rather than called directly
+from the test, which also matches how HA reports the deprecation: a
+custom-integration frame downgrades it to a log line, whereas a direct call
+from test code raises outright.
 """
 
+import pytest
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -32,6 +38,33 @@ from tests.helpers import make_state_proxy
 UNIQUE_ID = "uponorx265_test"
 GATEWAY_ID = "AABBCCDDEEFF"
 CONTROLLER_ID = "419524869"
+
+
+def _core_rejects_legacy_registry_apis(hass) -> bool:
+    """Whether this core raises on the pre-2026.8 registry APIs instead of warning.
+
+    HA 2026.9 flipped both deprecations exercised here - `async_get_device` and
+    `async_get_or_create(via_device=...)` - from a log line to a RuntimeError
+    raised out of `homeassistant.helpers.frame.report_usage`. They are gated by
+    the same mechanism and changed in the same release, so the lookup is enough
+    to probe with, and it is the cheap one: it creates no registry state.
+    """
+    try:
+        dr.async_get(hass).async_get_device(identifiers={("probe", "probe")})
+    except RuntimeError:
+        return True
+    return False
+
+
+@pytest.fixture(autouse=True)
+def require_exercisable_fallbacks(hass):
+    """Skip when the core cannot run the fallback branches at all."""
+    if _core_rejects_legacy_registry_apis(hass):
+        pytest.skip(
+            "core raises on the pre-2026.8 registry APIs (HA 2026.9+), so these "
+            "fallback branches cannot be exercised; run against HA 2026.8 to "
+            "cover them"
+        )
 
 
 async def test_lookup_falls_back_to_async_get_device(hass, monkeypatch):
