@@ -46,6 +46,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
         if state_proxy.has_floor_temperature(thermostat):
             entities.append(UponorFloorTemperatureSensor(unique_id, state_proxy, thermostat))
+            if not installer_settings:
+                entities.append(UponorFloorMinLimitSensor(unique_id, state_proxy, thermostat))
+                entities.append(UponorFloorMaxLimitSensor(unique_id, state_proxy, thermostat))
             _LOGGER.debug(f"Added floor sensor for: {room_name}")
 
         if state_proxy.has_humidity_sensor(thermostat):
@@ -121,6 +124,48 @@ class UponorGatewayStatusSensor(UponorGatewayEntity, SensorEntity):
     @property
     def icon(self):
         return "mdi:lan-connect" if self._state_proxy.is_available() else "mdi:lan-disconnect"
+
+
+class UponorFloorMinLimitSensor(UponorThermostatEntity, SensorEntity):
+    """Diagnostic sensor showing the minimum floor temperature limit for a single thermostat."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "floor_min_limit"
+
+    def __init__(self, unique_instance_id, state_proxy, thermostat):
+        super().__init__(unique_instance_id, state_proxy, thermostat)
+        self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_floor_min_limit"
+        self._attr_device_class = SensorDeviceClass.TEMPERATURE
+        self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+
+    @property
+    def available(self):
+        return self._state_proxy.is_available() and self._state_proxy.has_floor_temperature(self._thermostat)
+
+    @property
+    def native_value(self):
+        return self._state_proxy.get_floor_min_limit(self._thermostat)
+
+
+class UponorFloorMaxLimitSensor(UponorThermostatEntity, SensorEntity):
+    """Diagnostic sensor showing the maximum floor temperature limit for a single thermostat."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "floor_max_limit"
+
+    def __init__(self, unique_instance_id, state_proxy, thermostat):
+        super().__init__(unique_instance_id, state_proxy, thermostat)
+        self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_floor_max_limit"
+        self._attr_device_class = SensorDeviceClass.TEMPERATURE
+        self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+
+    @property
+    def available(self):
+        return self._state_proxy.is_available() and self._state_proxy.has_floor_temperature(self._thermostat)
+
+    @property
+    def native_value(self):
+        return self._state_proxy.get_floor_max_limit(self._thermostat)
 
 # ---------------------------------------------------------------------------
 # Regular measurement sensors

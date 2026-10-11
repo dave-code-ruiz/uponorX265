@@ -24,8 +24,8 @@ UNIQUE_ID = "uponorx265_test"
 CONTROLLER_ID = "419524869"
 THERMOSTAT_ID = "285805788"
 
-# One controller, one thermostat, and the three variables installer mode
-# switches between read-only and writable.
+# One controller, one thermostat with a floor probe, and the variables
+# installer mode switches between read-only and writable.
 LIVE_DATA = {
     "sys_controller_1_presence": "1",
     "C1_thermostat_1_presence": "1",
@@ -36,6 +36,9 @@ LIVE_DATA = {
     "C1_controller_relays_config": "3",
     "sys_pump_management": "0",
     "C1_T1_bypass_enable": "0",
+    "C1_T1_external_temperature": "808",
+    "C1_T1_minimum_floor_setpoint": "680",
+    "C1_T1_maximum_floor_setpoint": "860",
 }
 
 # (unique_id suffix, domain when installer mode is off, domain when it is on)
@@ -43,6 +46,8 @@ PAIRS = (
     (f"{UNIQUE_ID}_{CONTROLLER_ID}_relay_config", "sensor", "select"),
     (f"{UNIQUE_ID}_pump_management", "sensor", "select"),
     (f"{UNIQUE_ID}_{THERMOSTAT_ID}_bypass_enable", "binary_sensor", "switch"),
+    (f"{UNIQUE_ID}_{THERMOSTAT_ID}_floor_min_limit", "sensor", "number"),
+    (f"{UNIQUE_ID}_{THERMOSTAT_ID}_floor_max_limit", "sensor", "number"),
 )
 
 

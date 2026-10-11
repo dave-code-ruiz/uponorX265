@@ -29,7 +29,7 @@
           "binary_sensor_valve": "Skapa ventil-binärsensor",
           "switch_sensor_avg": "Skapa switch för medelvärdesinkludering",
           "controller_io": "Skapa relay/IO-sensorer för styrenhet",
-          "installer_settings": "Installatörsläge (reläer, bypass och pumpstyrning)"
+          "installer_settings": "Installatörsläge (reläer, bypass, pumpstyrning och golvtemperaturgränser)"
         }
       },
       "rooms": {
@@ -115,7 +115,7 @@
           "binary_sensor_valve": "Skapa ventil-binärsensor",
           "switch_sensor_avg": "Skapa binärsensor för medelvärdesinkludering",
           "controller_io": "Skapa relay/IO-sensorer för styrenhet",
-          "installer_settings": "Installatörsläge (reläer, bypass och pumpstyrning)"
+          "installer_settings": "Installatörsläge (reläer, bypass, pumpstyrning och golvtemperaturgränser)"
         }
       }
     }
@@ -172,6 +172,12 @@
       },
       "floor_temp": {
         "name": "Golvtemperatur"
+      },
+      "floor_min_limit": {
+        "name": "Golvtemperatur minimigräns"
+      },
+      "floor_max_limit": {
+        "name": "Golvtemperatur maximigräns"
       },
       "room_temp": {
         "name": "Rumstemperatur"
@@ -235,6 +241,14 @@
           "pump_eco_comfort": "Pump / Eco / Komfort",
           "not_configured": "Ej konfigurerad"
         }
+      }
+    },
+    "number": {
+      "floor_min_limit": {
+        "name": "Golvtemperatur minimigräns"
+      },
+      "floor_max_limit": {
+        "name": "Golvtemperatur maximigräns"
       }
     },
     "binary_sensor": {

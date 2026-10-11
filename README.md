@@ -73,6 +73,7 @@ When disabled, these settings are visible as read-only sensors instead.
 | Controller relays | Read-only sensor | Writable select |
 | Pump control | Read-only sensor (C1 only) | Writable select (C1 only) |
 | Bypass (per room) | Read-only binary sensor | Writable switch (max 2 active per controller) |
+| Floor temperature limits (per room) | Read-only sensors | Writable numbers |
 
 ## Entities
 
@@ -124,6 +125,13 @@ the setpoint to the minimum (heating mode) or maximum (cooling mode) configured 
 | Controller relays | Controller | Relay configuration — Not in use / Pump+Heater / Pump+Eco+Comfort / Not configured (installer mode only) |
 | Pump control | Controller (C1) | Individual or common pump control (installer mode only) |
 
+### Numbers
+
+| Entity | Device | Description |
+|---|---|---|
+| Floor temperature min limit | Thermostat | Lowest floor temperature the room is held at — 10–30 °C, never above the max limit (installer mode only, thermostat has an external floor probe) |
+| Floor temperature max limit | Thermostat | Highest floor temperature the room may reach — 20–35 °C, never below the min limit (installer mode only, thermostat has an external floor probe) |
+
 ### Sensors
 
 | Entity | Device | Created when |
@@ -136,6 +144,7 @@ the setpoint to the minimum (heating mode) or maximum (cooling mode) configured 
 | Status (thermostat) | Thermostat | Always — shows alarm/error codes for each thermostat |
 | Room temperature | Thermostat | Temperature sensor enabled in setup (default: on) |
 | Floor temperature | Thermostat | Thermostat has an external floor probe |
+| Floor temperature min limit / max limit | Thermostat | Installer mode off, and thermostat has an external floor probe |
 | Humidity | Thermostat | Thermostat has a humidity sensor |
 
 ### Binary sensors
