@@ -82,6 +82,35 @@ def _async_get_device_by_identifier(
     return dev_reg.async_get_device(identifiers={identifier})
 
 
+def _device_config_entry_ids(device: device_registry.DeviceEntry) -> set[str]:
+    """Every config entry a device belongs to.
+
+    HA 2026.8 restricted a device to a single config entry and gave it
+    `config_entry_id`; HA 2026.10 deprecated the set-valued `config_entries`
+    that field replaces, and it breaks in HA 2027.10.
+
+    A set is returned regardless, because one case still has several. A device
+    id recorded before 2026.8 for a device that several integrations shared -
+    an automation may well still hold one - resolves through `async_get` to a
+    read-only composite of the devices it was split into. `config_entries` is
+    how core exposes all of a composite's entries, and reading it there is not
+    reported as deprecated. Core can only be asked whether a device is a
+    composite from 2026.10 on; on 2026.8 and 2026.9 one resolves to its former
+    primary entry alone.
+
+    On cores older than 2026.8 `config_entry_id` does not exist and
+    `config_entries` is the only field there is.
+
+    Drop this shim (and read `config_entry_id` directly) once the integration
+    requires 2026.8 or newer and core no longer has composite devices.
+    """
+    if hasattr(device, "config_entry_id") and not getattr(
+        device, "is_composite_device", False
+    ):
+        return {device.config_entry_id}
+    return device.config_entries
+
+
 # `via_device` (the parent's identifier tuple) was deprecated in HA 2026.9 in
 # favour of `via_device_id` (the parent's registry id), which landed in 2026.8.
 # Checking the signature keeps this tied to the parameter actually being asked

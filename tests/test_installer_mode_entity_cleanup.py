@@ -1,8 +1,9 @@
 """Toggling installer mode used to strand the entities it replaced.
 
-`installer_settings` swaps three features between a read-only and a writable
+`installer_settings` swaps its features between a read-only and a writable
 form: relay config and pump management move between `sensor` and `select`,
-bypass between `binary_sensor` and `switch`. Both forms deliberately share a
+bypass between `binary_sensor` and `switch`, the floor temperature limits
+between `sensor` and `number`. Both forms deliberately share a
 unique_id, but the entity registry is keyed by (domain, platform, unique_id) -
 so the domain change registers a *second* row rather than renaming the first.
 
@@ -30,6 +31,8 @@ READ_ONLY = [
     ("sensor", f"{UNIQUE_ID}_c1id_relay_config"),
     ("sensor", f"{UNIQUE_ID}_pump_management"),
     ("binary_sensor", f"{UNIQUE_ID}_t1id_bypass_enable"),
+    ("sensor", f"{UNIQUE_ID}_t1id_floor_min_limit"),
+    ("sensor", f"{UNIQUE_ID}_t1id_floor_max_limit"),
 ]
 
 # The writable side, same unique_ids, as installer mode creates them.
@@ -37,12 +40,15 @@ WRITABLE = [
     ("select", f"{UNIQUE_ID}_c1id_relay_config"),
     ("select", f"{UNIQUE_ID}_pump_management"),
     ("switch", f"{UNIQUE_ID}_t1id_bypass_enable"),
+    ("number", f"{UNIQUE_ID}_t1id_floor_min_limit"),
+    ("number", f"{UNIQUE_ID}_t1id_floor_max_limit"),
 ]
 
 # Entities that have nothing to do with the flag and must survive either way.
 UNRELATED = [
     ("sensor", f"{UNIQUE_ID}_gateway_status"),
     ("sensor", f"{UNIQUE_ID}_t1id_current_temp"),
+    ("sensor", f"{UNIQUE_ID}_t1id_floor_temp"),
     ("switch", f"{UNIQUE_ID}_away"),
     ("switch", f"{UNIQUE_ID}_t1id_local_override"),
     ("binary_sensor", f"{UNIQUE_ID}_t1id_cb_actuator"),

@@ -100,3 +100,12 @@ FLAG_DEFAULTS = {
 
 TOO_HIGH_TEMP_LIMIT = 4508
 DEFAULT_TEMP = 20
+
+# Floor temperature limits, in Celsius: (lowest, highest) each may be set to.
+# These are Uponor's own ranges - thermostat settings menus 05 (high) and 06
+# (low), identical in the Smatrix Wave Pulse and Base Pulse manuals - not
+# something the gateway reports.
+# The manual adds that neither limit may cross the other.
+FLOOR_MIN_LIMIT_RANGE = (10, 30)
+FLOOR_MAX_LIMIT_RANGE = (20, 35)
+FLOOR_LIMIT_STEP = 0.5

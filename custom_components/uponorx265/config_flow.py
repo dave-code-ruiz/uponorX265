@@ -30,6 +30,7 @@ from .helper import (
     create_unique_id_from_user_input,
     generate_unique_id_from_user_input_conf_name,
     _async_get_devices_by_connection,
+    _device_config_entry_ids,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ class DomainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # A MAC can be registered by more than one integration (a router, a
         # device tracker), so every match is checked and only ours is acted on.
         for device in devices:
-            for entry_id in device.config_entries:
+            for entry_id in _device_config_entry_ids(device):
                 entry = self.hass.config_entries.async_get_entry(entry_id)
                 if entry is None or entry.domain != DOMAIN:
                     continue

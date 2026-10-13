@@ -29,7 +29,7 @@
           "binary_sensor_valve": "Create valve binary sensor",
           "switch_sensor_avg": "Create average inclusion switch",
           "controller_io": "Create controller relay/IO sensors",
-          "installer_settings": "Installer mode (relays, bypass and pump control)"
+          "installer_settings": "Installer mode (relays, bypass, pump control and floor limits)"
         }
       },
       "rooms": {
@@ -115,7 +115,7 @@
           "binary_sensor_valve": "Create valve binary sensor",
           "switch_sensor_avg": "Create average inclusion switch",
           "controller_io": "Create controller relay/IO sensors",
-          "installer_settings": "Installer mode (relays, bypass and pump control)"
+          "installer_settings": "Installer mode (relays, bypass, pump control and floor limits)"
         }
       }
     }
@@ -172,6 +172,12 @@
       },
       "floor_temp": {
         "name": "Floor temperature"
+      },
+      "floor_min_limit": {
+        "name": "Floor temperature min limit"
+      },
+      "floor_max_limit": {
+        "name": "Floor temperature max limit"
       },
       "room_temp": {
         "name": "Room temperature"
@@ -235,6 +241,14 @@
           "pump_eco_comfort": "Pump / Eco / Comfort",
           "not_configured": "Not configured"
         }
+      }
+    },
+    "number": {
+      "floor_min_limit": {
+        "name": "Floor temperature min limit"
+      },
+      "floor_max_limit": {
+        "name": "Floor temperature max limit"
       }
     },
     "binary_sensor": {

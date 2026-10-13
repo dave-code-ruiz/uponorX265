@@ -127,6 +127,6 @@ async def test_registries_survive_a_data_options_mismatch(hass):
     surviving = ent_reg.async_get(registry_entry.entity_id)
     assert surviving is not None, "entity registry row was deleted by the config sync"
     assert surviving.name == "Boiler room gateway", "the user's custom name was lost"
-    assert entry.entry_id in dev_reg.async_get(device.id).config_entries, (
+    assert dev_reg.async_get(device.id).config_entry_id == entry.entry_id, (
         "device lost its config entry association"
     )

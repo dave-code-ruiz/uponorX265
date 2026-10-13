@@ -58,6 +58,7 @@ from .jnap import UponorJnap
 from .helper import (
     get_unique_id_from_config_entry,
     _async_get_device_by_identifier,
+    _device_config_entry_ids,
     _via_device_kwargs,
 )
 
@@ -69,7 +70,7 @@ from homeassistant.components.climate.const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.CLIMATE, Platform.SWITCH, Platform.SENSOR, Platform.BINARY_SENSOR, Platform.SELECT]
+PLATFORMS = [Platform.CLIMATE, Platform.SWITCH, Platform.SENSOR, Platform.BINARY_SENSOR, Platform.SELECT, Platform.NUMBER]
 
 # Registered once for the domain rather than per config entry, so they have to
 # be removed once the last entry goes - see async_unload_entry.
@@ -119,7 +120,7 @@ def _resolve_target_proxies(hass: HomeAssistant, call) -> list:
         device = dev_reg.async_get(device_id)
         if device is None:
             continue
-        for entry_id in device.config_entries:
+        for entry_id in _device_config_entry_ids(device):
             entry = hass.config_entries.async_get_entry(entry_id)
             if entry and entry.domain == DOMAIN and entry.unique_id in all_proxies:
                 targeted[entry.unique_id] = all_proxies[entry.unique_id]
@@ -435,7 +436,7 @@ def _remove_unsupported_local_override_entities(hass: HomeAssistant, config_entr
             ent_reg.async_remove(entry.entity_id)
 
 
-# The three features installer mode makes writable. Each pair shares one
+# The features installer mode makes writable. Each pair shares one
 # unique_id between its read-only and writable form, but the entity registry
 # is keyed by (domain, platform, unique_id) - so the domain change makes them
 # two independent rows rather than one renamed entity.
@@ -445,6 +446,8 @@ INSTALLER_MODE_ENTITY_PAIRS = (
     ("_relay_config", "sensor", "select"),
     ("_pump_management", "sensor", "select"),
     ("_bypass_enable", "binary_sensor", "switch"),
+    ("_floor_min_limit", "sensor", "number"),
+    ("_floor_max_limit", "sensor", "number"),
 )
 
 # Registry fields that belong to the user rather than to the integration, and
@@ -470,8 +473,9 @@ def _remove_stale_installer_mode_entities(hass: HomeAssistant, config_entry: Con
     """Drop the entities stranded by a change to the installer mode flag.
 
     Toggling `installer_settings` swaps relay config and pump management
-    between `sensor` and `select`, and bypass between `binary_sensor` and
-    `switch`. Only the side matching the current flag is ever created again,
+    between `sensor` and `select`, bypass between `binary_sensor` and
+    `switch`, and the floor temperature limits between `sensor` and `number`.
+    Only the side matching the current flag is ever created again,
     so the other side lingers in the registry as an unavailable entity that
     nothing will write to - and it keeps holding its entity_id, which is why
     the replacement comes back as `..._2` after toggling twice.
@@ -1480,6 +1484,34 @@ class UponorStateProxy:
             if temp != 32767 and temp <= TOO_HIGH_TEMP_LIMIT:
                 return round((temp - 320) / 18, 1)
         return None
+
+    # The floor limits are reported for every thermostat, probe or not - a
+    # unit without one just carries the 20/26 C defaults - so the values say
+    # nothing about whether a floor sensor exists. Gate on
+    # has_floor_temperature() instead.
+    def get_floor_min_limit(self, thermostat):
+        var = thermostat + '_minimum_floor_setpoint'
+        if var in self._data:
+            return round((int(self._data[var]) - 320) / 18, 1)
+
+    def get_floor_max_limit(self, thermostat):
+        var = thermostat + '_maximum_floor_setpoint'
+        if var in self._data:
+            return round((int(self._data[var]) - 320) / 18, 1)
+
+    async def async_set_floor_min_limit(self, thermostat, temp):
+        var = thermostat + '_minimum_floor_setpoint'
+        data = str(round(temp * 18 + 320))
+        await self._client.send_data({var: data})
+        self._data[var] = data
+        self._hass.async_create_task(self.call_state_update())
+
+    async def async_set_floor_max_limit(self, thermostat, temp):
+        var = thermostat + '_maximum_floor_setpoint'
+        data = str(round(temp * 18 + 320))
+        await self._client.send_data({var: data})
+        self._data[var] = data
+        self._hass.async_create_task(self.call_state_update())
 
     # -------------------------------------------------------------------------
     # Temperature setpoint

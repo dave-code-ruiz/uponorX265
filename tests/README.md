@@ -52,12 +52,15 @@ green on the 2026.9 betas and the pin is gone.
 ### The one thing to watch
 
 The shims prefer the HA 2026.8+ APIs (`async_get_device_by_identifier`,
-`async_get_devices`, `via_device_id`) and fall back to the older ones on
-earlier cores. Nothing
+`async_get_devices`, `via_device_id`, `config_entry_id`) and fall back to the
+older ones on earlier cores. Nothing
 declares a minimum HA version, so those fallbacks are still live for users on
-old cores — and the only thing covering them is
+old cores — and the only thing covering the first three is
 [`test_ha_compat_shims.py`](test_ha_compat_shims.py), which exercises them by
-calling the deprecated APIs on purpose.
+calling the deprecated APIs on purpose. The `config_entry_id` fallback needs no
+old API to be callable, so
+[`test_device_config_entry_ids.py`](test_device_config_entry_ids.py) covers it
+on every core.
 
 HA 2026.9 raises on exactly those APIs, so on a 2026.9+ core those three tests
 skip themselves rather than fail. That is the honest outcome — the branches are
@@ -65,9 +68,9 @@ unreachable there, not broken — but it does mean **a run on latest alone leave
 the fallbacks uncovered**. If you touch the shims, run against both:
 
 ```powershell
-.venv\Scripts\python.exe -m pytest                                    # latest: 95 passed, 3 skipped
+.venv\Scripts\python.exe -m pytest                                    # latest: 110 passed, 3 skipped
 .venv\Scripts\python.exe -m pip install "pytest-homeassistant-custom-component==0.13.357"
-.venv\Scripts\python.exe -m pytest                                    # HA 2026.8: 98 passed
+.venv\Scripts\python.exe -m pytest                                    # HA 2026.8: 113 passed
 ```
 
 The fallbacks can be deleted outright — along with those tests — once the
