@@ -48,7 +48,6 @@
           "c1_t10": "Name of C1 Thermostat 10",
           "c1_t11": "Name of C1 Thermostat 11",
           "c1_t12": "Name of C1 Thermostat 12",
-
           "c2_t1": "Name of C2 Thermostat 1",
           "c2_t2": "Name of C2 Thermostat 2",
           "c2_t3": "Name of C2 Thermostat 3",
@@ -61,7 +60,6 @@
           "c2_t10": "Name of C2 Thermostat 10",
           "c2_t11": "Name of C2 Thermostat 11",
           "c2_t12": "Name of C2 Thermostat 12",
-
           "c3_t1": "Name of C3 Thermostat 1",
           "c3_t2": "Name of C3 Thermostat 2",
           "c3_t3": "Name of C3 Thermostat 3",
@@ -74,7 +72,6 @@
           "c3_t10": "Name of C3 Thermostat 10",
           "c3_t11": "Name of C3 Thermostat 11",
           "c3_t12": "Name of C3 Thermostat 12",
-
           "c4_t1": "Name of C4 Thermostat 1",
           "c4_t2": "Name of C4 Thermostat 2",
           "c4_t3": "Name of C4 Thermostat 3",
@@ -91,7 +88,9 @@
       }
     },
     "error": {
-      "invalid_host": "Invalid hostname or IP address."
+      "cannot_connect": "Could not connect to the gateway at this address. Check the IP address; if it is correct, the R-208 may have stopped responding, and power-cycling it usually helps.",
+      "invalid_response": "A device answered at this address, but not like an Uponor R-208 gateway.",
+      "unknown": "Unexpected error. See the Home Assistant log for details."
     },
     "abort": {
       "already_configured": "This Uponor gateway is already configured.",
@@ -166,8 +165,9 @@
           "rh_sensor_error": "Humidity sensor error",
           "rf_sensor_error": "RF sensor error",
           "tamper_error": "Tamper error",
-          "api_error": "API error",
-          "general_error": "General system error"
+          "api_error": "No temperature reading",
+          "general_error": "General system error",
+          "comfail_controller": "No contact with controller"
         }
       },
       "floor_temp": {

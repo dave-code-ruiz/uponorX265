@@ -1,6 +1,7 @@
 import asyncio
 import math
 import logging
+from datetime import timedelta
 
 import voluptuous as vol
 
@@ -75,6 +76,15 @@ PLATFORMS = [Platform.CLIMATE, Platform.SWITCH, Platform.SENSOR, Platform.BINARY
 # Registered once for the domain rather than per config entry, so they have to
 # be removed once the last entry goes - see async_unload_entry.
 DOMAIN_SERVICES = ("set_variable", "dump_hardware_info", "dump_raw_data")
+
+# Label for the R-208 -> main controller link in the transition log lines.
+MAIN_CONTROLLER_LINK = "main controller"
+
+
+def _format_duration(delta: timedelta) -> str:
+    """A log-friendly duration, to the second: 0:03:12."""
+    return str(timedelta(seconds=round(delta.total_seconds())))
+
 
 SET_VARIABLE_SCHEMA = vol.Schema(
     {
@@ -886,6 +896,8 @@ class UponorStateProxy:
         self._stale_override_switches_cleaned = False
         self._device_metadata_refreshed = False
         self._device_info = {}
+        # Controller links the gateway currently reports lost -> since when.
+        self._links_lost_since = {}
         _LOGGER.debug(f"Configdata = {self._config_entry}")
     # Controlers config  
     def get_active_controllers(self):
@@ -902,9 +914,45 @@ class UponorStateProxy:
             return self._data[var]
         return self._storage_metadata.get("controller_ids", {}).get(controller)
         
+    def is_main_controller_lost(self):
+        """True while the R-208 reports it has lost the controller it is attached to.
+
+        This is the comm module's own view (a `cust_` variable). While it is
+        set, everything the gateway relays from the controller side is
+        placeholder data - room temperatures come back as the 32767 "no
+        value" sentinel, which is what used to surface as "API error" on every
+        thermostat (issue #40). It is a fault between the R-208 and the
+        controller, not between Home Assistant and the R-208.
+        """
+        return self._data.get('cust_controller_1_lost') == "1"
+
+    def is_controller_lost(self, controller):
+        """True while the gateway cannot reach this controller.
+
+        Every controller is reached through the main one, so losing that
+        loses all of them; a sub-controller can also drop off on its own.
+        """
+        if self.is_main_controller_lost():
+            return True
+        var = controller.replace('C', 'sys_controller_') + '_lost'
+        return self._data.get(var) == "1"
+
+    def is_controller_available(self, controller):
+        """Gateway reachable and the gateway in contact with this controller."""
+        return bool(self.is_available()) and not self.is_controller_lost(controller)
+
+    def is_thermostat_available(self, thermostat):
+        """Whether this thermostat's values are real readings.
+
+        While its controller is lost the gateway still answers, but with
+        placeholders - a 32767 setpoint reads as 1802 C - so the thermostat's
+        entities go unavailable instead of reporting or acting on them. The
+        status sensors stay available to say why.
+        """
+        return self.is_controller_available(thermostat.split('_')[0])
+
     def get_controller_status(self, controller):
-        var = controller.replace('C','sys_controller_') + '_lost'
-        if var in self._data and self._data[var] == "1":
+        if self.is_controller_lost(controller):
             return STATUS_ERROR_CONTROLER
         var = controller + 'stat_out_module_com_lost'
         if var in self._data and self._data[var] == "1":
@@ -1054,12 +1102,14 @@ class UponorStateProxy:
         self._hass.async_create_task(self.call_state_update())
 
     def get_gateway_status(self):
-        if self.is_available() is None:
+        # is_available() returns a bool. This used to test it against None,
+        # which never matched, so the sensor could not show Offline: during a
+        # real outage it kept reporting whatever the last successful poll said.
+        if not self.is_available():
             return STATUS_OFFLINE
-        var = 'cust_controller_1_lost'
-        if var in self._data and self._data[var] == "1":
-            return STATUS_ERROR_MAINCONTROLER_FAIL        
-        return STATUS_ONLINE 
+        if self.is_main_controller_lost():
+            return STATUS_ERROR_MAINCONTROLER_FAIL
+        return STATUS_ONLINE
         
     def get_controller_relayconfig(self, controller):
         var = controller + '_controller_relays_config'
@@ -1587,6 +1637,11 @@ class UponorStateProxy:
             return int(self._data[var])
 
     def get_status(self, thermostat):
+        # First, because every reading below is a placeholder while the
+        # controller is out of reach - the room temperature in particular,
+        # which would otherwise be reported as STATUS_ERROR_TOO_HIGH_TEMP.
+        if self.is_controller_lost(thermostat.split('_')[0]):
+            return STATUS_ERROR_CONTROLER
         var = thermostat + '_stat_battery_error'
         if var in self._data and self._data[var] == "1":
             return STATUS_ERROR_BATTERY
@@ -1731,66 +1786,151 @@ class UponorStateProxy:
             return
 
         async with self._update_lock:
+            self.next_sp_from_dt = dt_util.now()
             try:
-                self.next_sp_from_dt = dt_util.now()
-                self._data = await self._client.get_data()
-                self._last_successful_update = dt_util.now()
-                self._unavailable_since = None
-                await self._async_persist_discovery_metadata()
-
-                # Runs here rather than at setup because model detection is
-                # only authoritative with live data; on a cache-based startup
-                # it would treat dial thermostats as unsupported.
-                if not self._stale_override_switches_cleaned:
-                    self._stale_override_switches_cleaned = True
-                    _remove_unsupported_local_override_entities(
-                        self._hass, self._config_entry, self._unique_id,
-                        self, self.get_active_thermostats(),
-                    )
-
-                # device_info was evaluated during platform setup, which on a
-                # cached startup happens before any live data exists. Now that
-                # it does, reconcile the registry with it.
-                await self.async_load_device_info()
-                if not self._device_metadata_refreshed:
-                    self._device_metadata_refreshed = True
-                    _refresh_device_metadata(
-                        self._hass, self._config_entry, self._unique_id,
-                        self, self.get_active_thermostats(),
-                    )
-
-                # The MAC may not have been resolvable at setup. Retry here so
-                # the session converges on the real identifier rather than
-                # running on the host fallback until the next restart.
-                if self._gateway_id is None:
-                    await self._async_retry_gateway_id()
-
-                self._hass.async_create_task(self.call_state_update())
+                data = await self._client.get_data()
+            except Exception as ex:  # pylint: disable=broad-except
+                await self._async_handle_unreachable(ex)
                 return
-            except Exception as ex:
-                _LOGGER.error("Uponor thermostat was unable to update: %s", ex)
 
             now = dt_util.now()
-            if self._unavailable_since is None:
-                self._unavailable_since = now
-                return
+            self._data = data
+            if self._unavailable_since is not None:
+                _LOGGER.info(
+                    "Uponor gateway %s is responding again after %s",
+                    self._host, _format_duration(now - self._unavailable_since),
+                )
+            self._last_successful_update = now
+            self._unavailable_since = None
+            self._track_controller_links(now)
 
-            if now - self._unavailable_since <= UNAVAILABLE_THRESHOLD:
-                return
-
-            if self._reload_in_progress:
-                return
-
-            if self._last_reload_attempt is not None and now - self._last_reload_attempt <= RELOAD_COOLDOWN:
-                return
-
-            self._reload_in_progress = True
-            self._last_reload_attempt = now
-            _LOGGER.warning("Uponor entities have been unavailable for more than 2 minutes. Triggering reload...")
+            # Everything below works on a response that has already arrived.
+            # It is kept out of the failure path above on purpose: an error
+            # here used to be logged as "unable to update", counted towards
+            # unavailability, and could end in a reload every RELOAD_COOLDOWN
+            # - indistinguishable in the log from a gateway dropping off the
+            # network - while the entities never received the fresh data.
             try:
-                await self._hass.config_entries.async_reload(self._config_entry.entry_id)
-            finally:
-                self._reload_in_progress = False
+                await self._async_process_update()
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.exception(
+                    "Error processing data from Uponor gateway %s", self._host
+                )
+
+            self._hass.async_create_task(self.call_state_update())
+
+    async def _async_process_update(self):
+        """Bookkeeping that follows a successful poll."""
+        await self._async_persist_discovery_metadata()
+
+        # Runs here rather than at setup because model detection is
+        # only authoritative with live data; on a cache-based startup
+        # it would treat dial thermostats as unsupported.
+        if not self._stale_override_switches_cleaned:
+            self._stale_override_switches_cleaned = True
+            _remove_unsupported_local_override_entities(
+                self._hass, self._config_entry, self._unique_id,
+                self, self.get_active_thermostats(),
+            )
+
+        # device_info was evaluated during platform setup, which on a
+        # cached startup happens before any live data exists. Now that
+        # it does, reconcile the registry with it.
+        await self.async_load_device_info()
+        if not self._device_metadata_refreshed:
+            self._device_metadata_refreshed = True
+            _refresh_device_metadata(
+                self._hass, self._config_entry, self._unique_id,
+                self, self.get_active_thermostats(),
+            )
+
+        # The MAC may not have been resolvable at setup. Retry here so
+        # the session converges on the real identifier rather than
+        # running on the host fallback until the next restart.
+        if self._gateway_id is None:
+            await self._async_retry_gateway_id()
+
+    async def _async_handle_unreachable(self, ex):
+        """A poll got no usable answer from the gateway.
+
+        Logged once when the outage starts and once when it ends (in
+        async_update), rather than as an error on every poll.
+        """
+        now = dt_util.now()
+        if self._unavailable_since is None:
+            self._unavailable_since = now
+            _LOGGER.warning("Uponor gateway %s is not responding: %s", self._host, ex)
+        else:
+            _LOGGER.debug("Uponor gateway %s is still not responding: %s", self._host, ex)
+
+        # Entities are push-updated, so without this nothing re-reads
+        # `available` during an outage: they kept their last state, and the
+        # gateway status sensor never got to show Offline, until a reload
+        # recreated them.
+        self._hass.async_create_task(self.call_state_update())
+
+        if now - self._unavailable_since <= UNAVAILABLE_THRESHOLD:
+            return
+
+        if self._reload_in_progress:
+            return
+
+        if self._last_reload_attempt is not None and now - self._last_reload_attempt <= RELOAD_COOLDOWN:
+            return
+
+        self._reload_in_progress = True
+        self._last_reload_attempt = now
+        _LOGGER.warning(
+            "Uponor gateway %s has not responded for %s; reloading the integration",
+            self._host, _format_duration(now - self._unavailable_since),
+        )
+        try:
+            await self._hass.config_entries.async_reload(self._config_entry.entry_id)
+        finally:
+            self._reload_in_progress = False
+
+    def _known_controllers(self):
+        """Controllers seen live this session or cached from an earlier one."""
+        cached = self._storage_metadata.get("controllers", [])
+        return list(dict.fromkeys(
+            self.get_active_controllers() + (cached if isinstance(cached, list) else [])
+        ))
+
+    def _track_controller_links(self, now):
+        """Log once when the gateway loses a controller, and once when it is back.
+
+        These are the events behind issue #40. The gateway itself keeps
+        answering throughout, so they never showed up as a failed poll; with
+        both sides logged, a gap in polling just before a "lost" line points
+        at the R-208 restarting, while a gateway that stays reachable points at
+        the link between the R-208 and the controller.
+        """
+        if self.is_main_controller_lost():
+            # Sub-controller flags are relayed through the main controller,
+            # so they mean nothing while it is out of reach: keep their state.
+            lost = {
+                link for link in self._links_lost_since if link != MAIN_CONTROLLER_LINK
+            } | {MAIN_CONTROLLER_LINK}
+        else:
+            lost = {
+                f"controller {controller}"
+                for controller in self._known_controllers()
+                if self._data.get(controller.replace('C', 'sys_controller_') + '_lost') == "1"
+            }
+
+        for link in sorted(lost - self._links_lost_since.keys()):
+            self._links_lost_since[link] = now
+            _LOGGER.warning(
+                "Uponor gateway %s reports it has lost contact with the %s; "
+                "the affected thermostats are unavailable until it recovers",
+                self._host, link,
+            )
+        for link in sorted(self._links_lost_since.keys() - lost):
+            since = self._links_lost_since.pop(link)
+            _LOGGER.info(
+                "Uponor gateway %s is in contact with the %s again after %s",
+                self._host, link, _format_duration(now - since),
+            )
 
     async def async_set_variable(self, var_name, var_value):
         _LOGGER.debug("Called set variable: name: %s, value: %s", var_name, var_value)

@@ -69,7 +69,9 @@
         }
       },
       "error": {
-        "invalid_host": "Nombre del host o dirección IP no válida."
+        "cannot_connect": "No se pudo conectar con la pasarela en esta dirección. Comprueba la dirección IP; si es correcta, puede que el R-208 haya dejado de responder, y desconectarlo de la corriente y volver a conectarlo suele solucionarlo.",
+        "invalid_response": "Un dispositivo respondió en esta dirección, pero no como una pasarela Uponor R-208.",
+        "unknown": "Error inesperado. Consulta el registro de Home Assistant para más detalles."
       },
       "abort": {
         "already_configured": "Esta pasarela Uponor ya está configurada.",

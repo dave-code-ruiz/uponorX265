@@ -136,7 +136,7 @@ the setpoint to the minimum (heating mode) or maximum (cooling mode) configured 
 
 | Entity | Device | Created when |
 |---|---|---|
-| Gateway status | Gateway | Always — shows Online/Offline for the R-208 module |
+| Gateway status | Gateway | Always — Online, Offline (Home Assistant cannot reach the R-208), or Communication failure with main controller (the R-208 answers but has lost the controller) |
 | Status (controller) | Controller | Controller entities enabled in setup |
 | Average room temperature | Controller | Controller entities enabled in setup |
 | Controller relays | Controller | Installer mode off |

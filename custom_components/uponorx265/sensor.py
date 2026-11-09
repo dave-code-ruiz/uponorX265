@@ -74,6 +74,12 @@ class UponorThermostatStatusSensor(UponorThermostatEntity, SensorEntity):
         self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_status"
 
     @property
+    def available(self):
+        # Unlike the thermostat's other entities this stays up while the
+        # controller is lost: saying so is its job.
+        return self._state_proxy.is_available()
+
+    @property
     def native_value(self):
         return self._state_proxy.get_status(self._thermostat)
 
@@ -93,12 +99,18 @@ class UponorControllerStatusSensor(UponorControllerEntity,SensorEntity):
         self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_controller_id(controller)}_status"
 
     @property
+    def available(self):
+        # Stays up while the controller is lost, to report it.
+        return self._state_proxy.is_available()
+
+    @property
     def native_value(self):
         return self._state_proxy.get_controller_status(self._controller)
 
     @property
     def icon(self):
-        return "mdi:check-circle-outline" if self._state_proxy.is_available() else "mdi:alert-circle"
+        status = self._state_proxy.get_controller_status(self._controller)
+        return "mdi:check-circle-outline" if status == STATUS_OK else "mdi:alert-circle"
 
 
 class UponorGatewayStatusSensor(UponorGatewayEntity, SensorEntity):
@@ -140,7 +152,7 @@ class UponorFloorMinLimitSensor(UponorThermostatEntity, SensorEntity):
 
     @property
     def available(self):
-        return self._state_proxy.is_available() and self._state_proxy.has_floor_temperature(self._thermostat)
+        return super().available and self._state_proxy.has_floor_temperature(self._thermostat)
 
     @property
     def native_value(self):
@@ -161,7 +173,7 @@ class UponorFloorMaxLimitSensor(UponorThermostatEntity, SensorEntity):
 
     @property
     def available(self):
-        return self._state_proxy.is_available() and self._state_proxy.has_floor_temperature(self._thermostat)
+        return super().available and self._state_proxy.has_floor_temperature(self._thermostat)
 
     @property
     def native_value(self):
@@ -184,7 +196,7 @@ class UponorFloorTemperatureSensor(UponorThermostatEntity, SensorEntity):
 
     @property
     def available(self):
-        return self._state_proxy.is_available() and self._state_proxy.has_floor_temperature(self._thermostat)
+        return super().available and self._state_proxy.has_floor_temperature(self._thermostat)
 
     @property
     def native_value(self):
@@ -219,7 +231,7 @@ class UponorHumiditySensor(UponorThermostatEntity, SensorEntity):
     @property
     def available(self):
         """Return True if the sensor is available."""
-        return self._state_proxy.is_available() and self._state_proxy.has_humidity_sensor(self._thermostat)
+        return super().available and self._state_proxy.has_humidity_sensor(self._thermostat)
 
     @property
     def native_value(self):

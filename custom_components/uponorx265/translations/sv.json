@@ -48,7 +48,6 @@
           "c1_t10": "Namn på C1 Termostat 10",
           "c1_t11": "Namn på C1 Termostat 11",
           "c1_t12": "Namn på C1 Termostat 12",
-
           "c2_t1": "Namn på C2 Termostat 1",
           "c2_t2": "Namn på C2 Termostat 2",
           "c2_t3": "Namn på C2 Termostat 3",
@@ -61,7 +60,6 @@
           "c2_t10": "Namn på C2 Termostat 10",
           "c2_t11": "Namn på C2 Termostat 11",
           "c2_t12": "Namn på C2 Termostat 12",
-
           "c3_t1": "Namn på C3 Termostat 1",
           "c3_t2": "Namn på C3 Termostat 2",
           "c3_t3": "Namn på C3 Termostat 3",
@@ -74,7 +72,6 @@
           "c3_t10": "Namn på C3 Termostat 10",
           "c3_t11": "Namn på C3 Termostat 11",
           "c3_t12": "Namn på C3 Termostat 12",
-
           "c4_t1": "Namn på C4 Termostat 1",
           "c4_t2": "Namn på C4 Termostat 2",
           "c4_t3": "Namn på C4 Termostat 3",
@@ -91,7 +88,9 @@
       }
     },
     "error": {
-      "invalid_host": "Ogiltigt värdnamn eller IP-adress."
+      "cannot_connect": "Kunde inte ansluta till gatewayen på den här adressen. Kontrollera IP-adressen; om den stämmer kan R-208 ha slutat svara, och att bryta strömmen till den brukar hjälpa.",
+      "invalid_response": "En enhet svarade på den här adressen, men inte som en Uponor R-208-gateway.",
+      "unknown": "Oväntat fel. Se Home Assistant-loggen för detaljer."
     },
     "abort": {
       "already_configured": "Den här Uponor-gatewayen är redan konfigurerad.",
@@ -166,8 +165,9 @@
           "rh_sensor_error": "Fuktighetssensorfel",
           "rf_sensor_error": "RF-sensorfel",
           "tamper_error": "Manipuleringsfel",
-          "api_error": "API-fel",
-          "general_error": "Allmänt systemfel"
+          "api_error": "Ingen temperaturavläsning",
+          "general_error": "Allmänt systemfel",
+          "comfail_controller": "Ingen kontakt med styrenhet"
         }
       },
       "floor_temp": {

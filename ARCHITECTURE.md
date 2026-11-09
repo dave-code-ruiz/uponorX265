@@ -21,6 +21,14 @@ Home Assistant custom integration that connects to an **Uponor Smatrix Pulse** g
 ### State layer — [__init__.py](custom_components/uponorx265/__init__.py)
 `UponorStateProxy` is the central class: keeps the raw data (`_data`) in memory, polls the gateway on `SCAN_INTERVAL` (30s), and exposes typed getters/setters (`get_setpoint`, `async_set_target_temperature`, `get_bypass_enable`, etc.) that the platform files build entities from. On every update, `SIGNAL_UPONOR_STATE_UPDATE` is sent via HA's dispatcher so all entities update at once. Data is also cached in `Store` (per config entry) for fast restarts. The module also registers the integration's services (`set_variable`, `dump_hardware_info`, `dump_raw_data`).
 
+### Availability: two different failures — [__init__.py](custom_components/uponorx265/__init__.py)
+There are two links between Home Assistant and a thermostat, and they fail differently.
+
+- **Home Assistant → R-208.** A poll gets no usable answer (`UponorJnap.post()` has spent its retries). Entities keep their last values for `UNAVAILABLE_THRESHOLD`, then go unavailable and the gateway status sensor shows **Offline**; past the threshold the entry is reloaded at most once per `RELOAD_COOLDOWN`. A dispatcher update is pushed on every failed poll as well, because entities are push-updated and would otherwise never re-read `available` during an outage. Logged once as a warning when it starts and once at info level, with its duration, when it ends.
+- **R-208 → controller.** The gateway answers normally but reports `cust_controller_1_lost` (it has lost the controller it is attached to) or `sys_controller_N_lost` (a sub-controller has dropped off). Everything relayed from that side is then a placeholder - room temperatures arrive as 32767, which used to read as "API error" on every thermostat (issue #40). The gateway status shows *Communication failure with main controller*, the affected controller and thermostat status sensors show *No contact with controller*, and every other entity of those thermostats/controllers is unavailable until it recovers. Also logged once each way. Polling frequency has no bearing on this flag; it is the R-208's own view.
+
+Processing a response that did arrive (metadata cache, registry reconciliation) is kept out of the failure path: an error there is logged with its traceback but does not count as the gateway being unreachable.
+
 ### Gateway ID (MAC address) — [__init__.py](custom_components/uponorx265/__init__.py)
 The gateway's `device_info` identifier is based on its MAC address when it can be resolved, otherwise it falls back to a host-based ID (the IP address with dots stripped).
 
