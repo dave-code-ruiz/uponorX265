@@ -203,7 +203,11 @@ class UponorFloorTemperatureSensor(UponorThermostatEntity, SensorEntity):
 
     @property
     def available(self):
-        return super().available and self._state_proxy.has_floor_temperature(self._thermostat)
+        # The probe is wired to the thermostat, so its value goes stale with it.
+        return (
+            self._state_proxy.has_live_readings(self._thermostat)
+            and self._state_proxy.has_floor_temperature(self._thermostat)
+        )
 
     @property
     def native_value(self):
@@ -222,6 +226,12 @@ class UponorRoomCurrentTemperatureSensor(UponorThermostatEntity, SensorEntity):
         self._attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
+    def available(self):
+        # Unavailable rather than flat: while the controller has lost contact
+        # with the thermostat the gateway keeps repeating its last reading.
+        return self._state_proxy.has_live_readings(self._thermostat)
+
+    @property
     def native_value(self):
         return self._state_proxy.get_temperature(self._thermostat)
 
@@ -238,7 +248,10 @@ class UponorHumiditySensor(UponorThermostatEntity, SensorEntity):
     @property
     def available(self):
         """Return True if the sensor is available."""
-        return super().available and self._state_proxy.has_humidity_sensor(self._thermostat)
+        return (
+            self._state_proxy.has_live_readings(self._thermostat)
+            and self._state_proxy.has_humidity_sensor(self._thermostat)
+        )
 
     @property
     def native_value(self):

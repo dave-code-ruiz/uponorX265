@@ -21,7 +21,8 @@ STATUS_ERROR_GENERAL            = 'general_error'
 STATUS_ERROR_AIR_SENSOR         = 'air_sensor_error'
 STATUS_ERROR_EXT_SENSOR         = 'ext_sensor_error'
 STATUS_ERROR_RH_SENSOR          = 'rh_sensor_error'
-STATUS_ERROR_RF_SENSOR          = 'rf_sensor_error'
+STATUS_ERROR_RF_SENSOR          = 'rf_sensor_error'   # shown as "No contact with thermostat"
+STATUS_WARNING_RF_LOW_SIGNAL    = 'rf_low_signal'
 STATUS_ERROR_TAMPER             = 'tamper_error'
 STATUS_ERROR_TOO_HIGH_TEMP      = 'api_error'
 STATUS_ERROR_COMFAILOUT         = 'comfail_out'
@@ -42,6 +43,16 @@ DIAL_THERMOSTAT_MODELS = ("T-144", "T-145")
 # the series has to be resolved before a thermostat can be identified.
 SERIES_WAVE = "wave"
 SERIES_BASE = "base"
+
+# Repair raised while a controller reports it has lost contact with a
+# thermostat. The advice differs by how the thermostat is connected, so there
+# is one translation per series; a system whose series cannot be resolved
+# gets wording that fits either.
+ISSUE_THERMOSTAT_CONTACT_LOST = "thermostat_contact_lost"
+THERMOSTAT_CONTACT_LOST_ISSUE_KEYS = {
+    SERIES_WAVE: "thermostat_contact_lost_wireless",
+    SERIES_BASE: "thermostat_contact_lost_wired",
+}
 
 # The controller firmware image name (cust_SW_version_update, e.g.
 # "X265_121.hex") states the controller model outright. This is a read, not

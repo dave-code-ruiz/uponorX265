@@ -124,6 +124,20 @@
       "message": "{room_name}: temperature is controlled by the physical thermostat dial. Switch to the 'HA controlled' preset to set temperature from Home Assistant."
     }
   },
+  "issues": {
+    "thermostat_contact_lost_wireless": {
+      "title": "{room_name}: no contact with the thermostat",
+      "description": "The Uponor controller has stopped hearing from the thermostat in {room_name}. The controller only reports this after about an hour without a reading, so the thermostat stopped before this notice appeared.\n\nUntil it reports again:\n- its readings are unavailable in Home Assistant, because the gateway only repeats the last values it received\n- the controller is not regulating the room to its setpoint, but runs it on a fixed fallback cycle regardless of the room temperature\n\nThe thermostat can look normal: its display may keep showing the last reading after the thermostat has stopped. Replace its batteries, or take them out and put them back to restart it. If it still does not reconnect, check that it is within range of the controller.\n\nThis notice clears by itself when the thermostat reports again."
+    },
+    "thermostat_contact_lost_wired": {
+      "title": "{room_name}: no contact with the thermostat",
+      "description": "The Uponor controller has stopped hearing from the thermostat in {room_name}.\n\nUntil it reports again:\n- its readings are unavailable in Home Assistant, because the gateway only repeats the last values it received\n- the controller is not regulating the room to its setpoint, and may run it on a fixed fallback cycle instead\n\nCheck the thermostat's cable to the controller and the connection at both ends.\n\nThis notice clears by itself when the thermostat reports again."
+    },
+    "thermostat_contact_lost": {
+      "title": "{room_name}: no contact with the thermostat",
+      "description": "The Uponor controller has stopped hearing from the thermostat in {room_name}.\n\nUntil it reports again:\n- its readings are unavailable in Home Assistant, because the gateway only repeats the last values it received\n- the controller is not regulating the room to its setpoint, and may run it on a fixed fallback cycle instead\n\nCheck that the thermostat has power and can reach the controller. A thermostat can stop working without its display showing it.\n\nThis notice clears by itself when the thermostat reports again."
+    }
+  },
   "entity": {
     "climate": {
       "uponor_climate": {
@@ -163,7 +177,8 @@
           "air_sensor_error": "Air sensor error",
           "ext_sensor_error": "External sensor error",
           "rh_sensor_error": "Humidity sensor error",
-          "rf_sensor_error": "RF sensor error",
+          "rf_sensor_error": "No contact with thermostat",
+          "rf_low_signal": "Weak radio signal",
           "tamper_error": "Tamper error",
           "api_error": "No temperature reading",
           "general_error": "General system error",

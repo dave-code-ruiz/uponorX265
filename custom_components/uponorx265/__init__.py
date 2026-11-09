@@ -15,6 +15,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers import device_registry, entity_registry
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 
@@ -36,6 +37,7 @@ from .const import (
     STATUS_ERROR_EXT_SENSOR,
     STATUS_ERROR_RH_SENSOR,
     STATUS_ERROR_RF_SENSOR,
+    STATUS_WARNING_RF_LOW_SIGNAL,
     STATUS_ERROR_TAMPER,
     STATUS_ERROR_TOO_HIGH_TEMP,
     STATUS_ERROR_COMFAILOUT,
@@ -54,6 +56,8 @@ from .const import (
     SERIES_WAVE,
     THERMOSTAT_MODELS,
     CONF_INSTALLER_SETTINGS,
+    ISSUE_THERMOSTAT_CONTACT_LOST,
+    THERMOSTAT_CONTACT_LOST_ISSUE_KEYS,
 )
 from .jnap import UponorJnap
 from .helper import (
@@ -735,7 +739,12 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
         config_entry, PLATFORMS
     )
     if unload_ok:
-        hass.data.pop(get_unique_id_from_config_entry(config_entry), None)
+        entry_data = hass.data.pop(get_unique_id_from_config_entry(config_entry), None)
+        # An open repair would otherwise stay up until the next restart for an
+        # entry that is disabled or removed. A reload raises it again on its
+        # first poll if the thermostat is still out of contact.
+        if isinstance(entry_data, dict) and entry_data.get("state_proxy") is not None:
+            entry_data["state_proxy"].clear_contact_issues()
 
         # The services are registered on the domain, not on the entry, so
         # unloading the last entry has to take them with it. Left behind, they
@@ -898,6 +907,8 @@ class UponorStateProxy:
         self._device_info = {}
         # Controller links the gateway currently reports lost -> since when.
         self._links_lost_since = {}
+        # Thermostats their controller has lost contact with -> since when.
+        self._thermostats_lost_since = {}
         _LOGGER.debug(f"Configdata = {self._config_entry}")
     # Controlers config  
     def get_active_controllers(self):
@@ -950,6 +961,42 @@ class UponorStateProxy:
         status sensors stay available to say why.
         """
         return self.is_controller_available(thermostat.split('_')[0])
+
+    def is_thermostat_contact_lost(self, thermostat):
+        """True while the controller reports it has lost contact with this thermostat.
+
+        The third link in the chain, after HA -> R-208 and R-208 -> controller.
+        Measured on a Wave Pulse system by pulling a T-169's battery: nothing
+        changes for about an hour - the gateway keeps relaying the last room
+        temperature and humidity it received - and then `_stat_rf_error`,
+        `_stat_cb_fallbk_heatalarm` and `_stat_cb_actuator` all go to 1 in the
+        same poll, and the controller heats the room on a fixed fallback cycle
+        (about 13 min on, 7 off) instead of regulating it. All three clear in
+        the first poll after the thermostat is back.
+
+        A thermostat that hangs (one knocked off the wall, say) looks the same
+        to the controller, and an e-ink display keeps showing its last image,
+        so the thermostat itself gives no sign of it.
+        """
+        return self._data.get(thermostat + '_stat_rf_error') == "1"
+
+    def has_live_readings(self, thermostat):
+        """Whether this thermostat's measurements are current readings.
+
+        False while its controller is lost (placeholders) and while the
+        controller has lost contact with the thermostat (the last values it
+        received, repeated). The climate entity stays available in the second
+        case - the setpoint lives in the controller, and the controller is
+        still driving the room - but without a current temperature.
+        """
+        return (
+            self.is_thermostat_available(thermostat)
+            and not self.is_thermostat_contact_lost(thermostat)
+        )
+
+    def is_in_fallback(self, thermostat):
+        """True while the controller runs this room on its fallback cycle."""
+        return self._data.get(thermostat + '_stat_cb_fallbk_heatalarm') == "1"
 
     def get_controller_status(self, controller):
         if self.is_controller_lost(controller):
@@ -1642,6 +1689,10 @@ class UponorStateProxy:
         # which would otherwise be reported as STATUS_ERROR_TOO_HIGH_TEMP.
         if self.is_controller_lost(thermostat.split('_')[0]):
             return STATUS_ERROR_CONTROLER
+        # Next, because the thermostat's other flags are then as stale as its
+        # readings, and this is what explains the readings being unavailable.
+        if self.is_thermostat_contact_lost(thermostat):
+            return STATUS_ERROR_RF_SENSOR
         var = thermostat + '_stat_battery_error'
         if var in self._data and self._data[var] == "1":
             return STATUS_ERROR_BATTERY
@@ -1657,15 +1708,15 @@ class UponorStateProxy:
         var = thermostat + '_stat_rh_sensor_error'
         if var in self._data and self._data[var] == "1":
             return STATUS_ERROR_RH_SENSOR
-        var = thermostat + '_stat_rf_error'
-        if var in self._data and self._data[var] == "1":
-            return STATUS_ERROR_RF_SENSOR
         var = thermostat + '_stat_tamper_alarm'
         if var in self._data and self._data[var] == "1":
             return STATUS_ERROR_TAMPER
         var = thermostat + '_room_temperature'
         if var in self._data and int(self._data[var]) > TOO_HIGH_TEMP_LIMIT:
             return STATUS_ERROR_TOO_HIGH_TEMP
+        # A warning, so last: the thermostat is still being heard.
+        if self._data.get(thermostat + '_stat_rf_low_sig_warning') == "1":
+            return STATUS_WARNING_RF_LOW_SIGNAL
 
         return STATUS_OK
 
@@ -1803,6 +1854,7 @@ class UponorStateProxy:
             self._last_successful_update = now
             self._unavailable_since = None
             self._track_controller_links(now)
+            self._track_thermostat_contact(now)
 
             # Everything below works on a response that has already arrived.
             # It is kept out of the failure path above on purpose: an error
@@ -1931,6 +1983,72 @@ class UponorStateProxy:
                 "Uponor gateway %s is in contact with the %s again after %s",
                 self._host, link, _format_duration(now - since),
             )
+
+    def _known_thermostats(self):
+        """Thermostats seen live this session or cached from an earlier one."""
+        cached = self._storage_metadata.get("thermostats", [])
+        return list(dict.fromkeys(
+            self.get_active_thermostats() + (cached if isinstance(cached, list) else [])
+        ))
+
+    def _track_thermostat_contact(self, now):
+        """Log and raise a repair once when a thermostat stops reporting, clear both when it is back.
+
+        The status sensor already said `rf_sensor_error` before this existed,
+        and a room went four days on a frozen reading without anyone seeing it:
+        a diagnostic sensor on a device page is not a notification.
+        """
+        lost = set()
+        for thermostat in self._known_thermostats():
+            if self.is_controller_lost(thermostat.split('_')[0]):
+                # Relayed through a controller the gateway cannot reach, so
+                # its flags are placeholders: keep whatever state it had.
+                if thermostat in self._thermostats_lost_since:
+                    lost.add(thermostat)
+            elif self.is_thermostat_contact_lost(thermostat):
+                lost.add(thermostat)
+
+        for thermostat in sorted(lost - self._thermostats_lost_since.keys()):
+            self._thermostats_lost_since[thermostat] = now
+            _LOGGER.warning(
+                "Uponor controller %s has lost contact with the thermostat in %s (%s); "
+                "its readings are unavailable until it reports again",
+                thermostat.split('_')[0], self.get_room_name(thermostat), thermostat,
+            )
+            self._create_contact_lost_issue(thermostat)
+        for thermostat in sorted(self._thermostats_lost_since.keys() - lost):
+            since = self._thermostats_lost_since.pop(thermostat)
+            _LOGGER.info(
+                "The thermostat in %s (%s) is reporting again after %s",
+                self.get_room_name(thermostat), thermostat, _format_duration(now - since),
+            )
+            ir.async_delete_issue(self._hass, DOMAIN, self._contact_issue_id(thermostat))
+
+    def _contact_issue_id(self, thermostat):
+        return f"{ISSUE_THERMOSTAT_CONTACT_LOST}_{self._config_entry.entry_id}_{thermostat}"
+
+    def _create_contact_lost_issue(self, thermostat):
+        # Not persistent: Home Assistant does not unload entries on shutdown,
+        # so a persistent issue could outlive the fault with nothing left to
+        # clear it. A fault that is still there is raised again by the first
+        # poll after the restart.
+        series = self.get_product_series(thermostat.split('_')[0])
+        ir.async_create_issue(
+            self._hass,
+            DOMAIN,
+            self._contact_issue_id(thermostat),
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=THERMOSTAT_CONTACT_LOST_ISSUE_KEYS.get(
+                series, ISSUE_THERMOSTAT_CONTACT_LOST
+            ),
+            translation_placeholders={"room_name": self.get_room_name(thermostat)},
+        )
+
+    def clear_contact_issues(self):
+        """Withdraw this gateway's contact repairs, e.g. when the entry unloads."""
+        for thermostat in self._thermostats_lost_since:
+            ir.async_delete_issue(self._hass, DOMAIN, self._contact_issue_id(thermostat))
 
     async def async_set_variable(self, var_name, var_value):
         _LOGGER.debug("Called set variable: name: %s, value: %s", var_name, var_value)

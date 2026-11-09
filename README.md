@@ -141,7 +141,7 @@ the setpoint to the minimum (heating mode) or maximum (cooling mode) configured 
 | Average room temperature | Controller | Controller entities enabled in setup |
 | Controller relays | Controller | Installer mode off |
 | Pump control | Controller (C1) | Installer mode off |
-| Status (thermostat) | Thermostat | Always — shows alarm/error codes for each thermostat |
+| Status (thermostat) | Thermostat | Always — shows alarm/error codes for each thermostat. *No contact with thermostat* means the controller has stopped hearing from it (it reports this after about an hour on Wave systems); the room's readings are then unavailable and a repair appears under Settings → Repairs |
 | Room temperature | Thermostat | Temperature sensor enabled in setup (default: on) |
 | Floor temperature | Thermostat | Thermostat has an external floor probe |
 | Floor temperature min limit / max limit | Thermostat | Installer mode off, and thermostat has an external floor probe |

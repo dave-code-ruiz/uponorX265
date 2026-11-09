@@ -95,13 +95,22 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
     def hvac_modes(self):
         return [HVACMode.COOL, HVACMode.OFF] if self._state_proxy.is_cool_enabled() else [HVACMode.HEAT, HVACMode.OFF]
 
+    # The entity stays available while the controller has lost contact with
+    # the thermostat - the setpoint and mode live in the controller, which is
+    # still running the room - but the measurements are then only the last
+    # values it received, repeated, so they are withheld.
+
     @property
     def current_humidity(self):
+        if self._state_proxy.is_thermostat_contact_lost(self._thermostat):
+            return None
         humidity = self._state_proxy.get_humidity(self._thermostat)
         return humidity if humidity not in (None, 0) else None
 
     @property
     def native_current_temperature(self):
+        if self._state_proxy.is_thermostat_contact_lost(self._thermostat):
+            return None
         return self._state_proxy.get_temperature(self._thermostat)
 
     @property
@@ -122,10 +131,14 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
 
     @property
     def extra_state_attributes(self):
+        contact_lost = self._state_proxy.is_thermostat_contact_lost(self._thermostat)
         return {
             'id': self._thermostat,
             'status': self._state_proxy.get_status(self._thermostat),
-            'pulse_width_modulation': self._state_proxy.get_pwm(self._thermostat),
+            # Frozen at its last value while the room is on the fallback
+            # cycle (observed: 15 throughout, with the actuator on).
+            'pulse_width_modulation': None if contact_lost else self._state_proxy.get_pwm(self._thermostat),
+            'fallback_mode': self._state_proxy.is_in_fallback(self._thermostat),
             'eco_setback': self._state_proxy.get_eco_setback(self._thermostat),
         }
     
