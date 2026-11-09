@@ -954,11 +954,11 @@ class UponorStateProxy:
     def get_controller_status(self, controller):
         if self.is_controller_lost(controller):
             return STATUS_ERROR_CONTROLER
-        var = controller + 'stat_out_module_com_lost'
-        if var in self._data and self._data[var] == "1":
+        # These used to be built without the underscore (C1stat_...), which
+        # matches no gateway variable, so neither state could ever be reported.
+        if self._data.get(controller + '_stat_out_module_com_lost') == "1":
             return STATUS_ERROR_COMFAILOUT
-        var = controller + 'stat_general_system_alarm'
-        if var in self._data and self._data[var] == "1":
+        if self._data.get(controller + '_stat_general_system_alarm') == "1":
             return STATUS_ERROR_GENERAL
         return STATUS_OK
         

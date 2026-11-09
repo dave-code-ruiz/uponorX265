@@ -117,7 +117,6 @@ class UponorGatewayStatusSensor(UponorGatewayEntity, SensorEntity):
     """Diagnostic sensor showing online/offline status for the Uponor gateway."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_available = True  # Always available so the sensor can show "Offline"
     _attr_translation_key = "gateway_status"
 
     def __init__(self, unique_instance_id, state_proxy):
@@ -128,6 +127,14 @@ class UponorGatewayStatusSensor(UponorGatewayEntity, SensorEntity):
         # which used to change this unique_id underneath the registry and
         # strand the old entity as sensor.uponor_gateway_status_2.
         self._attr_unique_id = f"{self._unique_instance_id}_gateway_status"
+
+    @property
+    def available(self):
+        # Always available, so an unreachable gateway reads as Offline rather
+        # than unavailable. This has to be a property: UponorGatewayEntity
+        # defines `available` as one, and that shadows `_attr_available`, which
+        # is all this class used to set.
+        return True
 
     @property
     def native_value(self):

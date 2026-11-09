@@ -22,7 +22,9 @@ from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.uponorx265.const import (
     DOMAIN,
+    STATUS_ERROR_COMFAILOUT,
     STATUS_ERROR_CONTROLER,
+    STATUS_ERROR_GENERAL,
     STATUS_ERROR_MAINCONTROLER_FAIL,
     STATUS_ERROR_TOO_HIGH_TEMP,
     STATUS_OFFLINE,
@@ -30,6 +32,7 @@ from custom_components.uponorx265.const import (
     STATUS_ONLINE,
     UNAVAILABLE_THRESHOLD,
 )
+from custom_components.uponorx265.sensor import UponorGatewayStatusSensor
 from tests.helpers import make_state_proxy
 
 LOGGER = "custom_components.uponorx265"
@@ -100,6 +103,52 @@ async def test_gateway_status_goes_offline_once_the_poll_is_stale(hass):
 async def test_gateway_status_online_and_main_controller_lost(hass):
     assert _polled(hass, HEALTHY).get_gateway_status() == STATUS_ONLINE
     assert _polled(hass, MAIN_LOST).get_gateway_status() == STATUS_ERROR_MAINCONTROLER_FAIL
+
+
+async def test_gateway_status_sensor_shows_offline_instead_of_unavailable(hass):
+    """The proxy saying Offline is not enough: HA only reads native_value while
+    the entity is available. `_attr_available = True` on the sensor was
+    shadowed by UponorGatewayEntity's `available` property, so during an outage
+    the sensor went unavailable and Offline was never displayed."""
+    proxy = _polled(hass, HEALTHY)
+    proxy._last_successful_update = dt_util.now() - UNAVAILABLE_THRESHOLD - timedelta(seconds=1)
+    sensor = UponorGatewayStatusSensor("uponorx265_test", proxy)
+
+    assert not proxy.is_available()
+    assert sensor.available
+    assert sensor.native_value == STATUS_OFFLINE
+
+
+# ---------------------------------------------------------------------------
+# Controller status
+# ---------------------------------------------------------------------------
+
+async def test_controller_out_module_and_system_alarm_are_reported(hass):
+    """Both used to be looked up as `C1stat_...`, a name the gateway never sends."""
+    proxy = _polled(hass, {
+        **HEALTHY,
+        "C1_stat_out_module_com_lost": "1",
+        "C2_stat_general_system_alarm": "1",
+    })
+
+    assert proxy.get_controller_status("C1") == STATUS_ERROR_COMFAILOUT
+    assert proxy.get_controller_status("C2") == STATUS_ERROR_GENERAL
+
+
+async def test_controller_status_ok_when_alarm_flags_are_clear(hass):
+    proxy = _polled(hass, {
+        **HEALTHY,
+        "C1_stat_out_module_com_lost": "0",
+        "C1_stat_general_system_alarm": "0",
+    })
+
+    assert proxy.get_controller_status("C1") == STATUS_OK
+
+
+async def test_controller_loss_outranks_its_alarm_flags(hass):
+    proxy = _polled(hass, {**MAIN_LOST, "C1_stat_general_system_alarm": "1"})
+
+    assert proxy.get_controller_status("C1") == STATUS_ERROR_CONTROLER
 
 
 # ---------------------------------------------------------------------------
