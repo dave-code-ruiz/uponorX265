@@ -1,6 +1,7 @@
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
@@ -110,15 +111,36 @@ class DomainConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
 
+            # Every failure used to be reported as "Invalid hostname or IP
+            # address" - including a correct address whose R-208 had hung
+            # (issue #41) - and the cause was put in an error key the form has
+            # no field for, so it was never shown or logged anywhere.
+            host = user_input[CONF_HOST]
+            error = None
             try:
                 session = async_get_clientsession(self.hass)
-                client = UponorJnap(user_input[CONF_HOST], session)
+                client = UponorJnap(host, session)
                 self._api_response = await client.get_data()
-            except Exception as e:
+            except HomeAssistantError as err:
+                # UponorJnap.post() raises this once its retries are spent on
+                # a connection error, a timeout, or a body that is not JSON.
+                _LOGGER.warning("Could not reach an Uponor gateway at %s: %s", host, err)
+                error = "cannot_connect"
+            except ValueError as err:
+                # Valid JSON, but not the JNAP attribute set.
+                _LOGGER.warning(
+                    "%s answered, but not with Uponor JNAP attribute data: %s", host, err
+                )
+                error = "invalid_response"
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.exception("Unexpected error while contacting %s", host)
+                error = "unknown"
+
+            if error is not None:
                 return self.async_show_form(
                     step_id="user",
-                    data_schema=self.schema,
-                    errors={"base": "invalid_host", "debug": repr(e)},
+                    data_schema=self.add_suggested_values_to_schema(self.schema, user_input),
+                    errors={"base": error},
                 )
             self._entry_data = user_input
             return self.async_show_form(

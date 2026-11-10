@@ -75,3 +75,20 @@ the fallbacks uncovered**. If you touch the shims, run against both:
 
 The fallbacks can be deleted outright — along with those tests — once the
 integration declares a minimum of HA 2026.8.
+
+### Climate temperature names (HA 2026.11)
+
+`UponorClimate` gives its unit and temperatures under both the `native_` names
+HA 2026.11 introduced and the old ones earlier cores read; see the comment on
+`_attr_native_temperature_unit` in
+[`climate.py`](../custom_components/uponorx265/climate.py).
+[`test_climate_native_temperature.py`](test_climate_native_temperature.py)
+checks the values on every core, but its no-deprecation-warning check skips
+itself on cores older than 2026.11, where there is nothing to warn about.
+
+On 2026-11-09 the newest `pytest-homeassistant-custom-component` (0.13.375)
+still pins HA 2026.10.4 and does not import against 2026.11, so that check skips
+on every runnable venv. The fix was verified against the HA 2026.11.0 core
+outside pytest instead. Once a release for 2026.11 is out, run the suite on it
+and confirm that test runs rather than skips. The old names can go once the
+integration requires HA 2026.11.
