@@ -136,8 +136,8 @@ the setpoint to the minimum (heating mode) or maximum (cooling mode) configured 
 
 | Entity | Device | Created when |
 |---|---|---|
-| Gateway status | Gateway | Always — Online, Offline (Home Assistant cannot reach the R-208), or Communication failure with main controller (the R-208 answers but has lost the controller) |
-| Status (controller) | Controller | Controller entities enabled in setup |
+| Gateway status | Gateway | Always — Online, Offline (Home Assistant cannot reach the R-208), or Communication failure with main controller (the R-208 answers but has lost the controller). Either one that lasts 10 minutes also raises a repair under Settings → Repairs |
+| Status (controller) | Controller | Controller entities enabled in setup. A controller the R-208 has had no contact with for 10 minutes also raises a repair |
 | Average room temperature | Controller | Controller entities enabled in setup |
 | Controller relays | Controller | Installer mode off |
 | Pump control | Controller (C1) | Installer mode off |

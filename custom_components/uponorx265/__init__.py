@@ -10,6 +10,7 @@ from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 
 from homeassistant.const import CONF_HOST, CONF_NAME, ATTR_DEVICE_ID
+from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
@@ -26,7 +27,7 @@ from .const import (
     SIGNAL_UPONOR_STATE_UPDATE,
     SCAN_INTERVAL,
     UNAVAILABLE_THRESHOLD,
-    RELOAD_COOLDOWN,
+    REPAIR_DELAY,
     STORAGE_KEY,
     STORAGE_VERSION,
     STATUS_OK,
@@ -58,6 +59,9 @@ from .const import (
     CONF_INSTALLER_SETTINGS,
     ISSUE_THERMOSTAT_CONTACT_LOST,
     THERMOSTAT_CONTACT_LOST_ISSUE_KEYS,
+    ISSUE_GATEWAY_UNREACHABLE,
+    ISSUE_MAIN_CONTROLLER_LOST,
+    ISSUE_CONTROLLER_LOST,
 )
 from .jnap import UponorJnap
 from .helper import (
@@ -88,6 +92,11 @@ MAIN_CONTROLLER_LINK = "main controller"
 def _format_duration(delta: timedelta) -> str:
     """A log-friendly duration, to the second: 0:03:12."""
     return str(timedelta(seconds=round(delta.total_seconds())))
+
+
+def _repair_delay_minutes() -> str:
+    """REPAIR_DELAY for the repair texts, so they cannot drift from the constant."""
+    return str(round(REPAIR_DELAY.total_seconds() / 60))
 
 
 SET_VARIABLE_SCHEMA = vol.Schema(
@@ -640,7 +649,9 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
     if started_from_cache:
         hass.async_create_task(state_proxy.async_update())
     else:
-        await state_proxy.async_update()
+        # Raises ConfigEntryNotReady when the gateway does not answer: with
+        # nothing cached there is nothing to build entities from.
+        await state_proxy.async_first_update()
         thermostats = state_proxy.get_active_thermostats()
 
     # Resolving the gateway id is a JNAP round trip, so it is only awaited on
@@ -741,10 +752,11 @@ async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> 
     if unload_ok:
         entry_data = hass.data.pop(get_unique_id_from_config_entry(config_entry), None)
         # An open repair would otherwise stay up until the next restart for an
-        # entry that is disabled or removed. A reload raises it again on its
-        # first poll if the thermostat is still out of contact.
+        # entry that is disabled or removed. After a reload, a fault that is
+        # still there is raised again: a thermostat on the first poll, a
+        # connection fault once it has lasted REPAIR_DELAY again.
         if isinstance(entry_data, dict) and entry_data.get("state_proxy") is not None:
-            entry_data["state_proxy"].clear_contact_issues()
+            entry_data["state_proxy"].clear_issues()
 
         # The services are registered on the domain, not on the entry, so
         # unloading the last entry has to take them with it. Left behind, they
@@ -896,8 +908,10 @@ class UponorStateProxy:
         self._unavailable_since = None
         self._update_lock = asyncio.Lock()
         self._storage_lock = asyncio.Lock()
-        self._reload_in_progress = False
-        self._last_reload_attempt = None
+        # Whether the current outage has been logged at warning level, and
+        # whether it has lasted long enough to be raised as a repair.
+        self._outage_logged = False
+        self._gateway_issue_raised = False
         self._gateway_id = None
         self._registered_gateway_id = _get_registered_gateway_id(
             hass, config_entry, unique_id
@@ -905,8 +919,10 @@ class UponorStateProxy:
         self._stale_override_switches_cleaned = False
         self._device_metadata_refreshed = False
         self._device_info = {}
-        # Controller links the gateway currently reports lost -> since when.
+        # Controller links the gateway currently reports lost -> since when,
+        # and those of them that have lasted long enough to be a repair.
         self._links_lost_since = {}
+        self._link_issues_raised = set()
         # Thermostats their controller has lost contact with -> since when.
         self._thermostats_lost_since = {}
         _LOGGER.debug(f"Configdata = {self._config_entry}")
@@ -1841,35 +1857,65 @@ class UponorStateProxy:
             try:
                 data = await self._client.get_data()
             except Exception as ex:  # pylint: disable=broad-except
-                await self._async_handle_unreachable(ex)
+                self._handle_unreachable(ex)
                 return
 
-            now = dt_util.now()
-            self._data = data
-            if self._unavailable_since is not None:
-                _LOGGER.info(
-                    "Uponor gateway %s is responding again after %s",
-                    self._host, _format_duration(now - self._unavailable_since),
-                )
-            self._last_successful_update = now
-            self._unavailable_since = None
-            self._track_controller_links(now)
-            self._track_thermostat_contact(now)
+            await self._async_handle_answer(data)
 
-            # Everything below works on a response that has already arrived.
-            # It is kept out of the failure path above on purpose: an error
-            # here used to be logged as "unable to update", counted towards
-            # unavailability, and could end in a reload every RELOAD_COOLDOWN
-            # - indistinguishable in the log from a gateway dropping off the
-            # network - while the entities never received the fresh data.
+    async def async_first_update(self):
+        """The first poll of a setup that has nothing cached to start from.
+
+        Without an answer there is nothing to build entities from, so this
+        raises ConfigEntryNotReady and Home Assistant retries the setup with a
+        backoff. Setup used to carry on with no thermostats instead, and only
+        came right because the integration reloaded itself every two minutes
+        while the gateway was down - a reload that has since been removed.
+        """
+        async with self._update_lock:
+            self.next_sp_from_dt = dt_util.now()
             try:
-                await self._async_process_update()
-            except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception(
-                    "Error processing data from Uponor gateway %s", self._host
-                )
+                data = await self._client.get_data()
+            except Exception as ex:  # pylint: disable=broad-except
+                raise ConfigEntryNotReady(
+                    f"Uponor gateway {self._host} is not responding: {ex}"
+                ) from ex
 
-            self._hass.async_create_task(self.call_state_update())
+            await self._async_handle_answer(data)
+
+    async def _async_handle_answer(self, data):
+        """A poll got an answer: take it in, and close any outage it ends."""
+        now = dt_util.now()
+        self._data = data
+        if self._unavailable_since is not None:
+            # Info for an outage that was announced, debug for a failed poll
+            # that never made anything unavailable.
+            (_LOGGER.info if self._outage_logged else _LOGGER.debug)(
+                "Uponor gateway %s is responding again after %s",
+                self._host, _format_duration(now - self._unavailable_since),
+            )
+        if self._gateway_issue_raised:
+            self._gateway_issue_raised = False
+            ir.async_delete_issue(self._hass, DOMAIN, self._gateway_issue_id())
+        self._last_successful_update = now
+        self._unavailable_since = None
+        self._outage_logged = False
+        self._track_controller_links(now)
+        self._track_thermostat_contact(now)
+
+        # Everything below works on a response that has already arrived.
+        # It is kept out of the failure path on purpose: an error here used
+        # to be logged as "unable to update" and counted towards
+        # unavailability - indistinguishable in the log from a gateway
+        # dropping off the network - while the entities never received the
+        # fresh data.
+        try:
+            await self._async_process_update()
+        except Exception:  # pylint: disable=broad-except
+            _LOGGER.exception(
+                "Error processing data from Uponor gateway %s", self._host
+            )
+
+        self._hass.async_create_task(self.call_state_update())
 
     async def _async_process_update(self):
         """Bookkeeping that follows a successful poll."""
@@ -1902,44 +1948,59 @@ class UponorStateProxy:
         if self._gateway_id is None:
             await self._async_retry_gateway_id()
 
-    async def _async_handle_unreachable(self, ex):
+    def _handle_unreachable(self, ex):
         """A poll got no usable answer from the gateway.
 
-        Logged once when the outage starts and once when it ends (in
-        async_update), rather than as an error on every poll.
+        Logged at warning level once, when the entities go unavailable, and
+        once at info level when it ends (in _async_handle_answer). A failed
+        poll that the next one makes up for - one every few hours on a
+        healthy system - makes nothing unavailable and is only debug.
+
+        Polling simply carries on. This used to reload the whole entry once
+        the gateway had been silent for UNAVAILABLE_THRESHOLD, which could
+        not help: the JNAP client holds nothing but the address and Home
+        Assistant's shared HTTP session, so a reload rebuilt the same client
+        and polled the same address, and a gateway that moves to a new address
+        is followed by DHCP discovery instead. The reload also threw away the
+        state that limited it to once per cooldown, so a long outage reloaded
+        the entry every two minutes - rewriting every entity, logging it all
+        again, restarting the outage clock and withdrawing open repairs.
         """
         now = dt_util.now()
         if self._unavailable_since is None:
             self._unavailable_since = now
+
+        if self.is_available():
+            _LOGGER.debug("Uponor gateway %s did not answer a poll: %s", self._host, ex)
+        elif not self._outage_logged:
+            self._outage_logged = True
             _LOGGER.warning("Uponor gateway %s is not responding: %s", self._host, ex)
         else:
             _LOGGER.debug("Uponor gateway %s is still not responding: %s", self._host, ex)
 
         # Entities are push-updated, so without this nothing re-reads
         # `available` during an outage: they kept their last state, and the
-        # gateway status sensor never got to show Offline, until a reload
-        # recreated them.
+        # gateway status sensor never got to show Offline.
         self._hass.async_create_task(self.call_state_update())
 
-        if now - self._unavailable_since <= UNAVAILABLE_THRESHOLD:
-            return
+        if not self._gateway_issue_raised and now - self._unavailable_since >= REPAIR_DELAY:
+            self._gateway_issue_raised = True
+            ir.async_create_issue(
+                self._hass,
+                DOMAIN,
+                self._gateway_issue_id(),
+                is_fixable=False,
+                severity=ir.IssueSeverity.ERROR,
+                translation_key=ISSUE_GATEWAY_UNREACHABLE,
+                translation_placeholders={
+                    "name": self.get_integration_name(),
+                    "host": self._host,
+                    "minutes": _repair_delay_minutes(),
+                },
+            )
 
-        if self._reload_in_progress:
-            return
-
-        if self._last_reload_attempt is not None and now - self._last_reload_attempt <= RELOAD_COOLDOWN:
-            return
-
-        self._reload_in_progress = True
-        self._last_reload_attempt = now
-        _LOGGER.warning(
-            "Uponor gateway %s has not responded for %s; reloading the integration",
-            self._host, _format_duration(now - self._unavailable_since),
-        )
-        try:
-            await self._hass.config_entries.async_reload(self._config_entry.entry_id)
-        finally:
-            self._reload_in_progress = False
+    def _gateway_issue_id(self):
+        return f"{ISSUE_GATEWAY_UNREACHABLE}_{self._config_entry.entry_id}"
 
     def _known_controllers(self):
         """Controllers seen live this session or cached from an earlier one."""
@@ -1983,6 +2044,54 @@ class UponorStateProxy:
                 "Uponor gateway %s is in contact with the %s again after %s",
                 self._host, link, _format_duration(now - since),
             )
+            if link in self._link_issues_raised:
+                self._link_issues_raised.discard(link)
+                ir.async_delete_issue(self._hass, DOMAIN, self._link_issue_id(link))
+
+        # Only a loss that lasts: the reports behind #40 cleared by themselves
+        # within a few minutes. Measured from when the loss was first seen, so
+        # a gateway outage in between does not restart the clock.
+        for link, since in sorted(self._links_lost_since.items()):
+            if link not in self._link_issues_raised and now - since >= REPAIR_DELAY:
+                self._link_issues_raised.add(link)
+                self._create_link_issue(link)
+
+    def _link_controller(self, link):
+        """The controller behind a lost link, or None for the main controller link."""
+        if link == MAIN_CONTROLLER_LINK:
+            return None
+        return link.removeprefix("controller ")
+
+    def _link_issue_id(self, link):
+        controller = self._link_controller(link)
+        if controller is None:
+            return f"{ISSUE_MAIN_CONTROLLER_LOST}_{self._config_entry.entry_id}"
+        return f"{ISSUE_CONTROLLER_LOST}_{self._config_entry.entry_id}_{controller}"
+
+    def _create_link_issue(self, link):
+        controller = self._link_controller(link)
+        placeholders = {
+            "name": self.get_integration_name(),
+            "minutes": _repair_delay_minutes(),
+        }
+        if controller is None:
+            # Every controller is reached through the main one, so nothing at
+            # all can be read or changed.
+            severity = ir.IssueSeverity.ERROR
+            translation_key = ISSUE_MAIN_CONTROLLER_LOST
+        else:
+            severity = ir.IssueSeverity.WARNING
+            translation_key = ISSUE_CONTROLLER_LOST
+            placeholders["controller_name"] = self.get_controller_name(controller)
+        ir.async_create_issue(
+            self._hass,
+            DOMAIN,
+            self._link_issue_id(link),
+            is_fixable=False,
+            severity=severity,
+            translation_key=translation_key,
+            translation_placeholders=placeholders,
+        )
 
     def _known_thermostats(self):
         """Thermostats seen live this session or cached from an earlier one."""
@@ -2045,10 +2154,16 @@ class UponorStateProxy:
             translation_placeholders={"room_name": self.get_room_name(thermostat)},
         )
 
-    def clear_contact_issues(self):
-        """Withdraw this gateway's contact repairs, e.g. when the entry unloads."""
+    def clear_issues(self):
+        """Withdraw every repair this gateway has raised, e.g. when the entry unloads."""
         for thermostat in self._thermostats_lost_since:
             ir.async_delete_issue(self._hass, DOMAIN, self._contact_issue_id(thermostat))
+        for link in self._link_issues_raised:
+            ir.async_delete_issue(self._hass, DOMAIN, self._link_issue_id(link))
+        self._link_issues_raised.clear()
+        if self._gateway_issue_raised:
+            self._gateway_issue_raised = False
+            ir.async_delete_issue(self._hass, DOMAIN, self._gateway_issue_id())
 
     async def async_set_variable(self, var_name, var_value):
         _LOGGER.debug("Called set variable: name: %s, value: %s", var_name, var_value)

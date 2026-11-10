@@ -272,6 +272,6 @@ async def test_unloading_withdraws_the_repair(hass):
     await proxy.async_update()
     assert _issue(hass, proxy) is not None
 
-    proxy.clear_contact_issues()
+    proxy.clear_issues()
 
     assert _issue(hass, proxy) is None

@@ -136,6 +136,18 @@
     "thermostat_contact_lost": {
       "title": "{room_name}: no contact with the thermostat",
       "description": "The Uponor controller has stopped hearing from the thermostat in {room_name}.\n\nUntil it reports again:\n- its readings are unavailable in Home Assistant, because the gateway only repeats the last values it received\n- the controller is not regulating the room to its setpoint, and may run it on a fixed fallback cycle instead\n\nCheck that the thermostat has power and can reach the controller. A thermostat can stop working without its display showing it.\n\nThis notice clears by itself when the thermostat reports again."
+    },
+    "gateway_unreachable": {
+      "title": "{name}: the gateway is not responding",
+      "description": "Home Assistant has had no answer from the Uponor R-208 communication module at {host} for over {minutes} minutes. Every Uponor entity is unavailable, and nothing can be changed from Home Assistant until it answers again. The controllers keep running the rooms on the settings they already have.\n\nCheck that:\n- the R-208 has power. It is powered through its cable to the controller, so a loose cable at either end, or a controller without power, also takes it offline\n- its network cable is connected, and the network between it and Home Assistant is working\n- it is still at {host}. If its address has changed, enter the new one under **Configure** on the integration's page\n\nThis notice clears by itself when the gateway answers again."
+    },
+    "main_controller_lost": {
+      "title": "{name}: the gateway has lost contact with the controller",
+      "description": "The Uponor R-208 communication module is answering, but has had no contact with the controller it is attached to for over {minutes} minutes. Meanwhile it only passes on placeholder values, so every Uponor thermostat and controller entity is unavailable, and nothing can be changed from Home Assistant. The controllers keep running the rooms on the settings they already have.\n\nThe R-208 is powered through its cable to the controller, and it is answering, so that cable still carries power. Check that it is seated firmly at both ends and is not damaged.\n\nThis notice clears by itself when the gateway is in contact with the controller again."
+    },
+    "controller_lost": {
+      "title": "{controller_name}: no contact with the controller",
+      "description": "The Uponor R-208 communication module has had no contact with {controller_name} for over {minutes} minutes. The thermostats on that controller are unavailable in Home Assistant until it is back. The controller itself keeps running its rooms on the settings it already has, unless it has lost power, in which case it is not running them at all.\n\nCheck that {controller_name} has power, and its connection to the main controller.\n\nThis notice clears by itself when the gateway is in contact with the controller again."
     }
   },
   "entity": {

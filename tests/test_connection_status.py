@@ -8,20 +8,32 @@ in 2-5 minutes. Both come out of a *successful* poll: the R-208 answers, sets
 32767). Meanwhile a real outage between Home Assistant and the R-208 could not
 show at all - the gateway status tested a bool against None, so Offline was
 unreachable - and was logged as an ERROR on every poll.
+
+Pulling cables on a live Wave Pulse system then showed the reload that followed
+two minutes of silence did nothing useful: the client it rebuilt is the same
+address on Home Assistant's shared HTTP session, both recoveries came from the
+ordinary poll, and because the reload discarded its own cooldown it repeated
+every two minutes for as long as the gateway was gone. What replaces it is a
+repair, raised once a fault has lasted REPAIR_DELAY.
 """
 
 import logging
 from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
+import pytest
 import homeassistant.util.dt as dt_util
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.uponorx265 import async_setup_entry
 from custom_components.uponorx265.const import (
     DOMAIN,
+    REPAIR_DELAY,
     STATUS_ERROR_COMFAILOUT,
     STATUS_ERROR_CONTROLER,
     STATUS_ERROR_GENERAL,
@@ -77,6 +89,23 @@ def _messages(caplog, level, fragment):
         for record in caplog.records
         if record.name == LOGGER and record.levelno == level and fragment in record.getMessage()
     ]
+
+
+def _rewind(proxy, delta):
+    """Move every timestamp the proxy keeps back by `delta`, as if that much time had passed."""
+    if proxy._last_successful_update is not None:
+        proxy._last_successful_update -= delta
+    if proxy._unavailable_since is not None:
+        proxy._unavailable_since -= delta
+    for link in proxy._links_lost_since:
+        proxy._links_lost_since[link] -= delta
+
+
+def _issue(hass, issue_id):
+    return ir.async_get(hass).async_get_issue(DOMAIN, issue_id)
+
+
+GATEWAY_FAILS = HomeAssistantError("POST http://10.0.0.1/JNAP/ failed: timeout")
 
 
 # ---------------------------------------------------------------------------
@@ -282,6 +311,192 @@ async def test_sub_controller_state_is_kept_while_main_is_lost(hass, caplog):
     assert len(_messages(caplog, logging.WARNING, "lost contact with the controller C2")) == 1
     assert not _messages(caplog, logging.INFO, "in contact with the controller C2 again")
     assert "controller C2" in proxy._links_lost_since
+
+
+async def test_a_single_failed_poll_is_not_an_outage(hass, caplog):
+    """One poll in a few hundred fails on a healthy system and the next one
+    answers. Nothing goes unavailable, so there is nothing to warn about."""
+    caplog.set_level(logging.DEBUG, logger=LOGGER)
+    proxy = _polled(hass, HEALTHY)
+    proxy._client.get_data.side_effect = [GATEWAY_FAILS, dict(HEALTHY)]
+
+    await proxy.async_update()
+    assert proxy.is_available()
+    await proxy.async_update()
+
+    assert not _messages(caplog, logging.WARNING, "not responding")
+    assert not _messages(caplog, logging.INFO, "is responding again")
+    assert len(_messages(caplog, logging.DEBUG, "did not answer a poll")) == 1
+    assert len(_messages(caplog, logging.DEBUG, "is responding again after")) == 1
+
+
+async def test_outage_is_announced_when_the_entities_go_unavailable(hass, caplog):
+    caplog.set_level(logging.DEBUG, logger=LOGGER)
+    proxy = _polled(hass, HEALTHY)
+    proxy._client.get_data.side_effect = GATEWAY_FAILS
+
+    await proxy.async_update()
+    assert not _messages(caplog, logging.WARNING, "is not responding")
+
+    _rewind(proxy, UNAVAILABLE_THRESHOLD)
+    await proxy.async_update()
+    assert not proxy.is_available()
+    assert len(_messages(caplog, logging.WARNING, "is not responding")) == 1
+
+    _rewind(proxy, timedelta(minutes=1))
+    await proxy.async_update()
+    assert len(_messages(caplog, logging.WARNING, "is not responding")) == 1, "logged again"
+
+    proxy._client.get_data.side_effect = [dict(HEALTHY)]
+    await proxy.async_update()
+    assert len(_messages(caplog, logging.INFO, "is responding again after")) == 1
+
+
+async def test_a_long_outage_never_reloads_the_entry(hass):
+    """Measured: three reloads in seven minutes, none of which brought anything back."""
+    proxy = make_state_proxy(hass)
+    proxy._client.get_data.side_effect = GATEWAY_FAILS
+
+    with patch.object(hass.config_entries, "async_reload", AsyncMock()) as reload:
+        for _ in range(4):
+            await proxy.async_update()
+            _rewind(proxy, REPAIR_DELAY)
+
+    reload.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Repairs for connection faults that last
+# ---------------------------------------------------------------------------
+
+async def test_gateway_repair_waits_for_the_delay_and_clears_on_the_next_answer(hass):
+    proxy = make_state_proxy(hass, entry_data={CONF_NAME: "Home"})
+    issue_id = proxy._gateway_issue_id()
+    proxy._client.get_data.side_effect = GATEWAY_FAILS
+
+    await proxy.async_update()
+    _rewind(proxy, REPAIR_DELAY - timedelta(seconds=1))
+    await proxy.async_update()
+    assert _issue(hass, issue_id) is None, "an R-208 restart answers again well inside this"
+
+    _rewind(proxy, timedelta(seconds=1))
+    await proxy.async_update()
+    issue = _issue(hass, issue_id)
+    assert issue is not None and issue.active
+    assert issue.severity is ir.IssueSeverity.ERROR
+    assert issue.translation_key == "gateway_unreachable"
+    assert issue.translation_placeholders == {"name": "Home", "host": "10.0.0.1", "minutes": "10"}
+    assert not issue.is_persistent, "nothing would clear it after a restart"
+
+    proxy._client.get_data.side_effect = [dict(HEALTHY)]
+    await proxy.async_update()
+    assert _issue(hass, issue_id) is None
+
+
+async def test_main_controller_repair_only_for_a_loss_that_lasts(hass):
+    """The #40 reports cleared by themselves within a few minutes."""
+    proxy = make_state_proxy(hass)
+    issue_id = proxy._link_issue_id("main controller")
+    proxy._client.get_data.side_effect = [dict(MAIN_LOST), dict(HEALTHY)]
+
+    await proxy.async_update()
+    await proxy.async_update()
+    assert _issue(hass, issue_id) is None
+
+    proxy._client.get_data.side_effect = [dict(MAIN_LOST), dict(MAIN_LOST), dict(HEALTHY)]
+    await proxy.async_update()
+    _rewind(proxy, REPAIR_DELAY)
+    await proxy.async_update()
+
+    issue = _issue(hass, issue_id)
+    assert issue is not None
+    assert issue.severity is ir.IssueSeverity.ERROR, "nothing at all can be read or changed"
+    assert issue.translation_key == "main_controller_lost"
+    assert issue.translation_placeholders == {"name": "Uponor", "minutes": "10"}
+
+    await proxy.async_update()
+    assert _issue(hass, issue_id) is None
+
+
+async def test_sub_controller_repair_names_the_controller(hass):
+    proxy = make_state_proxy(hass)
+    issue_id = proxy._link_issue_id("controller C2")
+    proxy._client.get_data.side_effect = [dict(SUB_LOST), dict(SUB_LOST), dict(HEALTHY)]
+
+    await proxy.async_update()
+    _rewind(proxy, REPAIR_DELAY)
+    await proxy.async_update()
+
+    issue = _issue(hass, issue_id)
+    assert issue is not None
+    assert issue.severity is ir.IssueSeverity.WARNING, "the other controllers are fine"
+    assert issue.translation_key == "controller_lost"
+    assert issue.translation_placeholders["controller_name"] == "Uponor Controller 2"
+    assert _issue(hass, proxy._link_issue_id("main controller")) is None
+
+    await proxy.async_update()
+    assert _issue(hass, issue_id) is None
+
+
+async def test_controller_loss_that_outlasts_a_gateway_outage_is_raised_on_return(hass):
+    """The loss is timed from when it was first seen, not from the last answer."""
+    proxy = make_state_proxy(hass)
+    issue_id = proxy._link_issue_id("main controller")
+    proxy._client.get_data.side_effect = [dict(MAIN_LOST), GATEWAY_FAILS, dict(MAIN_LOST)]
+
+    await proxy.async_update()
+    await proxy.async_update()
+    _rewind(proxy, REPAIR_DELAY)
+    await proxy.async_update()
+
+    assert _issue(hass, issue_id) is not None
+
+
+async def test_unloading_withdraws_the_connection_repairs(hass):
+    proxy = make_state_proxy(hass)
+    proxy._client.get_data.side_effect = [dict(SUB_LOST), dict(SUB_LOST), GATEWAY_FAILS, GATEWAY_FAILS]
+    await proxy.async_update()
+    _rewind(proxy, REPAIR_DELAY)
+    await proxy.async_update()
+    await proxy.async_update()
+    _rewind(proxy, REPAIR_DELAY)
+    await proxy.async_update()
+    link_issue = proxy._link_issue_id("controller C2")
+    assert _issue(hass, link_issue) is not None
+    assert _issue(hass, proxy._gateway_issue_id()) is not None
+
+    proxy.clear_issues()
+
+    assert _issue(hass, link_issue) is None
+    assert _issue(hass, proxy._gateway_issue_id()) is None
+
+
+# ---------------------------------------------------------------------------
+# Setup with nothing cached
+# ---------------------------------------------------------------------------
+
+async def test_first_setup_without_an_answer_is_retried_by_home_assistant(hass, caplog):
+    """Setup used to carry on with no thermostats and only came right because
+    the integration kept reloading itself while the gateway was down."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_HOST: "10.0.0.1", CONF_NAME: "Uponor"},
+        options={CONF_HOST: "10.0.0.1", CONF_NAME: "Uponor"},
+        unique_id="uponorx265_test",
+    )
+    entry.add_to_hass(hass)
+    client = AsyncMock()
+    client.get_data.side_effect = GATEWAY_FAILS
+
+    with patch("custom_components.uponorx265.UponorJnap", return_value=client), \
+         patch.object(hass.config_entries, "async_forward_entry_setups", AsyncMock()) as platforms, \
+         pytest.raises(ConfigEntryNotReady):
+        await async_setup_entry(hass, entry)
+
+    platforms.assert_not_awaited()
+    assert "uponorx265_test" not in hass.data
+    # Home Assistant logs a setup retry itself.
+    assert not _messages(caplog, logging.WARNING, "is not responding")
 
 
 # ---------------------------------------------------------------------------

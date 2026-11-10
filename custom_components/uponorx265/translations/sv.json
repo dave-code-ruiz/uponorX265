@@ -136,6 +136,18 @@
     "thermostat_contact_lost": {
       "title": "{room_name}: ingen kontakt med termostaten",
       "description": "Uponor-styrenheten har slutat ta emot signaler från termostaten i {room_name}.\n\nTills den rapporterar igen:\n- är dess avläsningar inte tillgängliga i Home Assistant, eftersom gatewayen bara upprepar de senaste värden den tog emot\n- reglerar styrenheten inte rummet mot börvärdet, och kan i stället köra det i reservläge med en fast cykel\n\nKontrollera att termostaten har ström och kan nå styrenheten. En termostat kan sluta fungera utan att det syns på dess display.\n\nDen här aviseringen försvinner av sig själv när termostaten rapporterar igen."
+    },
+    "gateway_unreachable": {
+      "title": "{name}: gatewayen svarar inte",
+      "description": "Home Assistant har inte fått något svar från Uponors kommunikationsmodul R-208 på {host} på över {minutes} minuter. Alla Uponor-entiteter är otillgängliga, och inget kan ändras från Home Assistant förrän den svarar igen. Styrenheterna fortsätter att styra rummen med de inställningar de redan har.\n\nKontrollera att:\n- R-208 har ström. Den får sin ström via kabeln till styrenheten, så en lös kabel i någon av ändarna, eller en styrenhet utan ström, gör också att den slutar svara\n- dess nätverkskabel är ansluten och att nätverket mellan den och Home Assistant fungerar\n- den fortfarande har adressen {host}. Om adressen har ändrats anger du den nya under **Konfigurera** på integrationens sida\n\nDen här aviseringen försvinner av sig själv när gatewayen svarar igen."
+    },
+    "main_controller_lost": {
+      "title": "{name}: gatewayen har tappat kontakten med styrenheten",
+      "description": "Uponors kommunikationsmodul R-208 svarar, men har inte haft kontakt med styrenheten den är ansluten till på över {minutes} minuter. Under tiden skickar den bara vidare platshållarvärden, så alla Uponor-entiteter för termostater och styrenheter är otillgängliga, och inget kan ändras från Home Assistant. Styrenheterna fortsätter att styra rummen med de inställningar de redan har.\n\nR-208 får sin ström via kabeln till styrenheten, och eftersom den svarar leder kabeln fortfarande ström. Kontrollera att kabeln sitter ordentligt i båda ändar och inte är skadad.\n\nDen här aviseringen försvinner av sig själv när gatewayen har kontakt med styrenheten igen."
+    },
+    "controller_lost": {
+      "title": "{controller_name}: ingen kontakt med styrenheten",
+      "description": "Uponors kommunikationsmodul R-208 har inte haft kontakt med {controller_name} på över {minutes} minuter. Termostaterna på den styrenheten är otillgängliga i Home Assistant tills den är tillbaka. Styrenheten fortsätter själv att styra sina rum med de inställningar den redan har, men om den har förlorat strömmen styr den inte rummen alls.\n\nKontrollera att {controller_name} har ström, och dess anslutning till huvudstyrenheten.\n\nDen här aviseringen försvinner av sig själv när gatewayen har kontakt med styrenheten igen."
     }
   },
   "entity": {

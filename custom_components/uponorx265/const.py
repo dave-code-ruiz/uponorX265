@@ -7,7 +7,12 @@ DOMAIN = "uponorx265"
 SIGNAL_UPONOR_STATE_UPDATE = "uponor_state_update"
 SCAN_INTERVAL = timedelta(seconds=30)
 UNAVAILABLE_THRESHOLD = timedelta(minutes=2)
-RELOAD_COOLDOWN = timedelta(minutes=10)
+# How long a connection fault has to last before it is raised as a repair.
+# Entities react at UNAVAILABLE_THRESHOLD; a repair asks someone to go and
+# look, so it waits out what fixes itself: an R-208 restart (in a test it was
+# answering again within 90 s of its cable being plugged back in) and the
+# isolated failed polls seen every few hours.
+REPAIR_DELAY = timedelta(minutes=10)
 
 STORAGE_KEY = "uponorx265_data"
 STORAGE_VERSION = 1
@@ -53,6 +58,13 @@ THERMOSTAT_CONTACT_LOST_ISSUE_KEYS = {
     SERIES_WAVE: "thermostat_contact_lost_wireless",
     SERIES_BASE: "thermostat_contact_lost_wired",
 }
+
+# Repairs raised once a fault between Home Assistant and the controllers has
+# lasted REPAIR_DELAY: no answer from the R-208 at all, the R-208 answering
+# without the controller it is attached to, or a sub-controller dropping off.
+ISSUE_GATEWAY_UNREACHABLE = "gateway_unreachable"
+ISSUE_MAIN_CONTROLLER_LOST = "main_controller_lost"
+ISSUE_CONTROLLER_LOST = "controller_lost"
 
 # The controller firmware image name (cust_SW_version_update, e.g.
 # "X265_121.hex") states the controller model outright. This is a read, not
