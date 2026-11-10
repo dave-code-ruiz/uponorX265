@@ -56,6 +56,7 @@ from .const import (
     SERIES_CONTROLLER_MODELS,
     SERIES_WAVE,
     THERMOSTAT_MODELS,
+    THERMOSTAT_MODEL_SERIES,
     CONF_INSTALLER_SETTINGS,
     ISSUE_THERMOSTAT_CONTACT_LOST,
     THERMOSTAT_CONTACT_LOST_ISSUE_KEYS,
@@ -1367,6 +1368,10 @@ class UponorStateProxy:
                     [thermostat for thermostat in thermostats if thermostat + '_external_temperature' in self._data and int(self._data[thermostat + '_external_temperature']) != 32767]
                     + self._storage_metadata.get("floor", [])
                 )),
+                "battery": list(dict.fromkeys(
+                    [thermostat for thermostat in thermostats if self.has_battery(thermostat)]
+                    + self._storage_metadata.get("battery", [])
+                )),
                 "cooling_available": self._data.get('sys_cooling_available') == "1",
             }
 
@@ -1589,6 +1594,37 @@ class UponorStateProxy:
         if var in self._data:
             return int(self._data[var]) != 32767
         return thermostat in self._storage_metadata.get("floor", [])
+
+    def has_battery(self, thermostat):
+        """Whether this thermostat runs on batteries.
+
+        Wave Pulse thermostats are wireless and battery powered; Base Pulse
+        ones are powered over their bus cable. The gateway reports
+        `_stat_battery_error` for both, so the variable cannot decide it - the
+        series does. On a cached start the series is not known yet when the
+        entities are built, so the answer from earlier polls is cached. A
+        cache written before that existed still has the thermostat's model,
+        which belongs to one series; without that fallback the entities would
+        only appear from the second restart after an update.
+        """
+        series = self.get_product_series(thermostat.split('_')[0])
+        if series is not None:
+            return series == SERIES_WAVE
+        cached = self._storage_metadata.get("battery")
+        if cached is not None:
+            return thermostat in cached
+        model = self._storage_metadata.get("models", {}).get(thermostat)
+        return THERMOSTAT_MODEL_SERIES.get(model) == SERIES_WAVE
+
+    def is_battery_low(self, thermostat):
+        """True while the thermostat reports a low battery.
+
+        Never yet seen set on real hardware: pulling a battery cuts the power
+        outright and raises `_stat_rf_error` an hour later instead. How long
+        before a battery runs flat the thermostat starts reporting this is
+        unknown.
+        """
+        return self._data.get(thermostat + '_stat_battery_error') == "1"
 
     def get_floor_temperature(self, thermostat):
         var = thermostat + '_external_temperature'

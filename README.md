@@ -152,6 +152,7 @@ the setpoint to the minimum (heating mode) or maximum (cooling mode) configured 
 | Entity | Device | Created when |
 |---|---|---|
 | Valve | Thermostat | Valve sensor enabled in setup (default: off) — shows whether the actuator is open |
+| Battery | Thermostat | Always, on Wave Pulse (wireless) thermostats — *Low* when the thermostat reports a low battery. Works with Home Assistant's *Battery became low* trigger, so one automation can watch every room |
 | Pump relay | Controller | Controller relay/IO sensors enabled in setup (default: off). Hidden for C2+ when pump control is set to Common |
 | Boiler request | Controller | Controller relay/IO sensors enabled in setup (default: off) — shows Heat / Normal |
 | Bypass (per room) | Controller | Installer mode off — read-only view of bypass state per room |

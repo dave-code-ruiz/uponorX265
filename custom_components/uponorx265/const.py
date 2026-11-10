@@ -101,6 +101,8 @@ THERMOSTAT_MODELS = {
     (SERIES_WAVE, "7"): "T-169",
     (SERIES_BASE, "3"): "T-146",
 }
+# The other way round, for a cached model whose series is not cached.
+THERMOSTAT_MODEL_SERIES = {model: series for (series, _), model in THERMOSTAT_MODELS.items()}
 
 CONF_CREATE_CONTROLLERS = "create_controllers"
 CONF_SENSOR_TEMP = "sensor_temperature"

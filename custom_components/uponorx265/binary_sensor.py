@@ -1,6 +1,7 @@
 import logging
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
+from homeassistant.helpers.entity import EntityCategory
 
 from .const import CONF_BINARY_SENSOR_VALVE, CONF_CONTROLLER_IO, CONF_INSTALLER_SETTINGS
 from .helper import get_unique_id_from_config_entry, UponorThermostatEntity, UponorControllerEntity
@@ -34,6 +35,12 @@ async def async_setup_entry(hass, entry, async_add_entities):
         for thermostat in hass.data[unique_id]["thermostats"]:
             entities.append(BypassReadOnlySensor(unique_id, state_proxy, thermostat))
 
+    entities += [
+        UponorBatterySensor(unique_id, state_proxy, thermostat)
+        for thermostat in hass.data[unique_id]["thermostats"]
+        if state_proxy.has_battery(thermostat)
+    ]
+
     async_add_entities(entities)
 
 
@@ -51,6 +58,32 @@ class UponorValveSensor(UponorThermostatEntity, BinarySensorEntity):
     @property
     def is_on(self):
         return self._state_proxy.is_active(self._thermostat)
+
+
+class UponorBatterySensor(UponorThermostatEntity, BinarySensorEntity):
+    """On while a battery powered thermostat reports a low battery.
+
+    A battery binary sensor is what Home Assistant's own "battery became low"
+    trigger and condition read, so one automation can cover every thermostat.
+    Named by its device class ("Battery"), so it needs no translation.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.BATTERY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, unique_instance_id, state_proxy, thermostat):
+        super().__init__(unique_instance_id, state_proxy, thermostat)
+        self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_battery"
+
+    @property
+    def available(self):
+        # While the controller has lost contact with the thermostat, the flag
+        # is as old as its last message: say nothing rather than repeat it.
+        return self._state_proxy.has_live_readings(self._thermostat)
+
+    @property
+    def is_on(self):
+        return self._state_proxy.is_battery_low(self._thermostat)
 
 
 class ControllerPumpRelaySensor(UponorControllerEntity, BinarySensorEntity):
