@@ -34,16 +34,19 @@ The setup wizard has four steps:
 
 1. **Connection** — enter the IP address and a name for this gateway.
 2. **Controllers** — optionally rename each detected controller. A checkbox lets you choose whether
-   controller devices and sensors should be created in HA.
+   the controller *Status* and *Average room temperature* sensors are created. The controller
+   devices themselves are always created.
 3. **Sensors** — choose which optional sensors and features to create:
    - **Current temperature sensor** (on by default)
    - **Valve binary sensor** (off by default)
    - **Average inclusion switch** (off by default) — per-thermostat toggle for controller average temperature
-   - **Controller relay/IO sensors** (off by default) — pump relay status per controller
+   - **Controller relay/IO sensors** (off by default) — pump relay and boiler request per controller
    - **Installer mode** (off by default) — see below
 4. **Rooms** — optionally rename each detected thermostat/room.
 
-All settings can be changed later via **Settings → Devices & Services → UponorX265 → Configure**.
+The IP address and the step 3 options can be changed later via
+**Settings → Devices & Services → UponorX265 → Configure**. To rename a controller or room
+afterwards, rename its device in Home Assistant.
 
 ## If the gateway changes IP address
 
@@ -84,28 +87,35 @@ One climate entity per thermostat.
 | Feature | Description |
 |---|---|
 | Current temperature | Room temperature from the thermostat sensor |
-| Target temperature | Read-only when preset is not **HA controlled** (set by the physical dial) |
-| HVAC mode | Heat / Cool / Off |
+| Target temperature | Settable from HA — on T-144/T-145 dial thermostats only in the **HA controlled** preset |
+| HVAC mode | Heat or Cool (following the system-wide mode), or Off |
 | Presets | See below |
 
 **Presets:**
 
 | Preset | Description |
 |---|---|
-| Comfort | Normal operation — temperature controlled by the physical thermostat dial |
-| ECO | Activated by the thermostat's scheduled ECO profile or Temporary ECO in the mobile app |
-| Away | Activated by the Away switch (forces ECO mode on all thermostats) |
-| HA controlled | Unlocks target temperature control from Home Assistant |
+| Comfort | Normal operation |
+| ECO | The room is in ECO — from its scheduled ECO profile, or Temporary ECO in the mobile app |
+| Away | System-wide forced ECO is on (the Away switch) |
+| HA controlled | T-144/T-145 dial thermostats only — HA sets the target temperature instead of the dial |
 
-When the preset is anything other than **HA controlled**, the target temperature is read-only.
-Attempting to change it shows a notification explaining that the dial is in control and
-the displayed temperature is immediately refreshed from the controller.
+Choosing a preset from Home Assistant acts on the whole system, not just that room: **ECO**
+and **Away** both turn on forced ECO for every thermostat (the same as the Away switch), and
+**Comfort** turns it off for every thermostat.
 
+**Dial thermostats (T-144/T-145):** the physical dial is in control unless the preset is
+**HA controlled**. Setting a target temperature from HA in any other preset is rejected with an
+error explaining why, and the displayed temperature is refreshed from the controller.
 Switching away from **HA controlled** immediately re-polls the controller so HA shows the
-temperature the physical dial is set to.
+temperature the dial is set to. Other thermostat models accept a target temperature from HA
+in every preset.
 
 **Turn off:** since the Uponor API has no true off command, turning off a climate entity sets
 the setpoint to the minimum (heating mode) or maximum (cooling mode) configured limit.
+Turning it back on restores the previous setpoint (20 °C if none is known). A target
+temperature set while the room is off is remembered for when it is turned back on, without
+turning it on.
 
 ### Switches
 
@@ -114,7 +124,7 @@ the setpoint to the minimum (heating mode) or maximum (cooling mode) configured 
 | Away | Gateway | Activates away/ECO mode for all thermostats |
 | Automatic firmware update | Gateway | Enables automatic firmware updates on the R-208 module |
 | Cooling mode | Gateway | Switches the entire system between heating and cooling mode (only shown if cooling is available) |
-| HA controlled (per room) | Thermostat | Per-thermostat toggle for HA temperature control (mirrors the HA controlled preset) |
+| HA controlled (per room) | Thermostat | T-144/T-145 dial thermostats only — toggles HA temperature control (mirrors the HA controlled preset) |
 | Included in average (per room) | Thermostat | Toggles whether the thermostat contributes to the controller's average room temperature (enabled in setup, default: off) |
 | Bypass (per room) | Controller | Enables bypass for a room — max 2 active per controller (installer mode only) |
 
@@ -136,12 +146,12 @@ the setpoint to the minimum (heating mode) or maximum (cooling mode) configured 
 
 | Entity | Device | Created when |
 |---|---|---|
-| Gateway status | Gateway | Always — shows Online/Offline for the R-208 module |
-| Status (controller) | Controller | Controller entities enabled in setup |
+| Gateway status | Gateway | Always — Online, Offline (Home Assistant cannot reach the R-208), or Communication failure with main controller (the R-208 answers but has lost the controller). Either one that lasts 10 minutes also raises a repair under Settings → Repairs |
+| Status (controller) | Controller | Controller entities enabled in setup. Whether or not it is, a controller the R-208 has had no contact with for 10 minutes raises a repair |
 | Average room temperature | Controller | Controller entities enabled in setup |
 | Controller relays | Controller | Installer mode off |
 | Pump control | Controller (C1) | Installer mode off |
-| Status (thermostat) | Thermostat | Always — shows alarm/error codes for each thermostat |
+| Status (thermostat) | Thermostat | Always — shows alarm/error codes for each thermostat. *No contact with thermostat* means the controller has stopped hearing from it (it reports this after about an hour on Wave systems); the room's readings are then unavailable and a repair appears under Settings → Repairs |
 | Room temperature | Thermostat | Temperature sensor enabled in setup (default: on) |
 | Floor temperature | Thermostat | Thermostat has an external floor probe |
 | Floor temperature min limit / max limit | Thermostat | Installer mode off, and thermostat has an external floor probe |
@@ -152,6 +162,7 @@ the setpoint to the minimum (heating mode) or maximum (cooling mode) configured 
 | Entity | Device | Created when |
 |---|---|---|
 | Valve | Thermostat | Valve sensor enabled in setup (default: off) — shows whether the actuator is open |
+| Battery | Thermostat | Always, on Wave Pulse (wireless) thermostats — *Low* when the thermostat reports a low battery. Works with Home Assistant's *Battery became low* trigger, so one automation can watch every room |
 | Pump relay | Controller | Controller relay/IO sensors enabled in setup (default: off). Hidden for C2+ when pump control is set to Common |
 | Boiler request | Controller | Controller relay/IO sensors enabled in setup (default: off) — shows Heat / Normal |
 | Bypass (per room) | Controller | Installer mode off — read-only view of bypass state per room |
@@ -161,7 +172,8 @@ the setpoint to the minimum (heating mode) or maximum (cooling mode) configured 
 Entity names and sensor states are translated using Home Assistant's translation system.
 The language used is the **HA system language** (Settings → System → General → Language),
 not the individual user's profile language. Swedish (`sv`) and English (`en`) are supported;
-English is the fallback for all other languages.
+English is the fallback for all other languages. A partial Spanish (`es`) translation covers
+only a few setup and configuration screens; everything else appears in English.
 
 ## Services
 
@@ -173,33 +185,40 @@ Sends a raw variable update to the Uponor API. Use with caution.
 |---|---|---|
 | `var_name` | Yes | Variable name, e.g. `sys_heat_cool_mode` |
 | `var_value` | Yes | Value to set |
-| `device_id` | No | Target gateway device. Required if more than one gateway is configured. |
+| `device_id` | No | Any device of the target gateway (the gateway, a controller or a thermostat). Required if more than one gateway is configured. |
 
 ### `uponorx265.dump_hardware_info`
 
 Returns raw hardware IDs and capability flags for every thermostat and controller
-as a service response, shown directly in **Developer Tools → Services**.
+as a service response, shown directly in **Developer Tools → Actions**.
 Useful for identifying unrecognised device models and reporting them as issues.
 
-Example output:
+Example output (a Wave Pulse system):
 ```yaml
 gateways:
-  - gateway_id: "101683"
+  - gateway_id: AABBCCDDEEFF
     gateway_model: R-208
+    gateway_serial: 000000XX000000
+    gateway_hw_version: "1"
+    gateway_sw_version: "20006006"
+    gateway_firmware_version: Sky_smatrixrelease_2_0_6_6_locked
     controllers:
       - controller: C1
         sn_start: "4195"
-        hardware_type_raw: "0"
-        detected_model: X-245
-        sw_version: "1.22"
+        hardware_type_raw: "1"
+        detected_model: X-265
+        sw_version: "1.21"
         relays_config: "3"
     thermostats:
       - thermostat: C1_T1
-        sn_start: "2692"
-        hardware_type_raw: "0"
-        detected_model: T-145
+        sn_start: "2858"
+        hardware_type_raw: "2"
+        hw_type_raw: "7"
+        sw_version_raw: "12"
+        sw_version: C
+        detected_model: T-169
         has_humidity_control: 0
-        has_humidity_sensor: false
+        has_humidity_sensor: true
         has_floor_temperature: false
         is_public_device: 0
         is_sensor_only: 0
@@ -208,7 +227,7 @@ gateways:
 ### `uponorx265.dump_raw_data`
 
 Returns the complete raw data dictionary received from the gateway as a service response,
-shown directly in **Developer Tools → Services**.
+shown directly in **Developer Tools → Actions**.
 Useful for inspecting all available variables and their current values — for example when
 trying to map an unknown variable or verify that a write has taken effect.
 

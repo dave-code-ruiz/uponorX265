@@ -7,7 +7,12 @@ DOMAIN = "uponorx265"
 SIGNAL_UPONOR_STATE_UPDATE = "uponor_state_update"
 SCAN_INTERVAL = timedelta(seconds=30)
 UNAVAILABLE_THRESHOLD = timedelta(minutes=2)
-RELOAD_COOLDOWN = timedelta(minutes=10)
+# How long a connection fault has to last before it is raised as a repair.
+# Entities react at UNAVAILABLE_THRESHOLD; a repair asks someone to go and
+# look, so it waits out what fixes itself: an R-208 restart (in a test it was
+# answering again within 90 s of its cable being plugged back in) and the
+# isolated failed polls seen every few hours.
+REPAIR_DELAY = timedelta(minutes=10)
 
 STORAGE_KEY = "uponorx265_data"
 STORAGE_VERSION = 1
@@ -21,7 +26,8 @@ STATUS_ERROR_GENERAL            = 'general_error'
 STATUS_ERROR_AIR_SENSOR         = 'air_sensor_error'
 STATUS_ERROR_EXT_SENSOR         = 'ext_sensor_error'
 STATUS_ERROR_RH_SENSOR          = 'rh_sensor_error'
-STATUS_ERROR_RF_SENSOR          = 'rf_sensor_error'
+STATUS_ERROR_RF_SENSOR          = 'rf_sensor_error'   # shown as "No contact with thermostat"
+STATUS_WARNING_RF_LOW_SIGNAL    = 'rf_low_signal'
 STATUS_ERROR_TAMPER             = 'tamper_error'
 STATUS_ERROR_TOO_HIGH_TEMP      = 'api_error'
 STATUS_ERROR_COMFAILOUT         = 'comfail_out'
@@ -42,6 +48,23 @@ DIAL_THERMOSTAT_MODELS = ("T-144", "T-145")
 # the series has to be resolved before a thermostat can be identified.
 SERIES_WAVE = "wave"
 SERIES_BASE = "base"
+
+# Repair raised while a controller reports it has lost contact with a
+# thermostat. The advice differs by how the thermostat is connected, so there
+# is one translation per series; a system whose series cannot be resolved
+# gets wording that fits either.
+ISSUE_THERMOSTAT_CONTACT_LOST = "thermostat_contact_lost"
+THERMOSTAT_CONTACT_LOST_ISSUE_KEYS = {
+    SERIES_WAVE: "thermostat_contact_lost_wireless",
+    SERIES_BASE: "thermostat_contact_lost_wired",
+}
+
+# Repairs raised once a fault between Home Assistant and the controllers has
+# lasted REPAIR_DELAY: no answer from the R-208 at all, the R-208 answering
+# without the controller it is attached to, or a sub-controller dropping off.
+ISSUE_GATEWAY_UNREACHABLE = "gateway_unreachable"
+ISSUE_MAIN_CONTROLLER_LOST = "main_controller_lost"
+ISSUE_CONTROLLER_LOST = "controller_lost"
 
 # The controller firmware image name (cust_SW_version_update, e.g.
 # "X265_121.hex") states the controller model outright. This is a read, not
@@ -78,6 +101,8 @@ THERMOSTAT_MODELS = {
     (SERIES_WAVE, "7"): "T-169",
     (SERIES_BASE, "3"): "T-146",
 }
+# The other way round, for a cached model whose series is not cached.
+THERMOSTAT_MODEL_SERIES = {model: series for (series, _), model in THERMOSTAT_MODELS.items()}
 
 CONF_CREATE_CONTROLLERS = "create_controllers"
 CONF_SENSOR_TEMP = "sensor_temperature"

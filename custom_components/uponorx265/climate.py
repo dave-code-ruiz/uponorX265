@@ -44,6 +44,15 @@ async def async_setup_entry(hass, entry, async_add_entities):
 class UponorClimate(UponorThermostatEntity, ClimateEntity):
     _enable_turn_on_off_backwards_compatibility = False
     _attr_name = None  # Main entity — uses device name directly
+    # HA 2026.11 renamed the climate temperature members with a `native_`
+    # prefix. A class providing only the old names logs a deprecation warning
+    # and stops working in 2027.11; one providing both is served the native
+    # names without a warning, while older cores only know the old ones. So
+    # the unit and both temperatures are given under both names. (Type
+    # checkers on 2026.11 flag the old names, which core declares Final; the
+    # runtime explicitly supports this.) Drop the old names once the
+    # integration requires HA 2026.11 or newer.
+    _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_supported_features = (
         ClimateEntityFeature.TARGET_TEMPERATURE
@@ -86,18 +95,31 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
     def hvac_modes(self):
         return [HVACMode.COOL, HVACMode.OFF] if self._state_proxy.is_cool_enabled() else [HVACMode.HEAT, HVACMode.OFF]
 
+    # The entity stays available while the controller has lost contact with
+    # the thermostat - the setpoint and mode live in the controller, which is
+    # still running the room - but the measurements are then only the last
+    # values it received, repeated, so they are withheld.
+
     @property
     def current_humidity(self):
+        if self._state_proxy.is_thermostat_contact_lost(self._thermostat):
+            return None
         humidity = self._state_proxy.get_humidity(self._thermostat)
         return humidity if humidity not in (None, 0) else None
 
     @property
-    def current_temperature(self):
+    def native_current_temperature(self):
+        if self._state_proxy.is_thermostat_contact_lost(self._thermostat):
+            return None
         return self._state_proxy.get_temperature(self._thermostat)
 
     @property
-    def target_temperature(self):
+    def native_target_temperature(self):
         return self._state_proxy.get_setpoint(self._thermostat)
+
+    # Pre-2026.11 names of the two above, see `_attr_native_temperature_unit`.
+    current_temperature = native_current_temperature
+    target_temperature = native_target_temperature
 
     @property
     def min_temp(self):
@@ -109,10 +131,14 @@ class UponorClimate(UponorThermostatEntity, ClimateEntity):
 
     @property
     def extra_state_attributes(self):
+        contact_lost = self._state_proxy.is_thermostat_contact_lost(self._thermostat)
         return {
             'id': self._thermostat,
             'status': self._state_proxy.get_status(self._thermostat),
-            'pulse_width_modulation': self._state_proxy.get_pwm(self._thermostat),
+            # Frozen at its last value while the room is on the fallback
+            # cycle (observed: 15 throughout, with the actuator on).
+            'pulse_width_modulation': None if contact_lost else self._state_proxy.get_pwm(self._thermostat),
+            'fallback_mode': self._state_proxy.is_in_fallback(self._thermostat),
             'eco_setback': self._state_proxy.get_eco_setback(self._thermostat),
         }
     

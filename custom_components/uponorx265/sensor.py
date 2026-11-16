@@ -74,6 +74,12 @@ class UponorThermostatStatusSensor(UponorThermostatEntity, SensorEntity):
         self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_thermostat_id(thermostat)}_status"
 
     @property
+    def available(self):
+        # Unlike the thermostat's other entities this stays up while the
+        # controller is lost: saying so is its job.
+        return self._state_proxy.is_available()
+
+    @property
     def native_value(self):
         return self._state_proxy.get_status(self._thermostat)
 
@@ -93,19 +99,24 @@ class UponorControllerStatusSensor(UponorControllerEntity,SensorEntity):
         self._attr_unique_id = f"{unique_instance_id}_{state_proxy.get_controller_id(controller)}_status"
 
     @property
+    def available(self):
+        # Stays up while the controller is lost, to report it.
+        return self._state_proxy.is_available()
+
+    @property
     def native_value(self):
         return self._state_proxy.get_controller_status(self._controller)
 
     @property
     def icon(self):
-        return "mdi:check-circle-outline" if self._state_proxy.is_available() else "mdi:alert-circle"
+        status = self._state_proxy.get_controller_status(self._controller)
+        return "mdi:check-circle-outline" if status == STATUS_OK else "mdi:alert-circle"
 
 
 class UponorGatewayStatusSensor(UponorGatewayEntity, SensorEntity):
     """Diagnostic sensor showing online/offline status for the Uponor gateway."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_available = True  # Always available so the sensor can show "Offline"
     _attr_translation_key = "gateway_status"
 
     def __init__(self, unique_instance_id, state_proxy):
@@ -116,6 +127,14 @@ class UponorGatewayStatusSensor(UponorGatewayEntity, SensorEntity):
         # which used to change this unique_id underneath the registry and
         # strand the old entity as sensor.uponor_gateway_status_2.
         self._attr_unique_id = f"{self._unique_instance_id}_gateway_status"
+
+    @property
+    def available(self):
+        # Always available, so an unreachable gateway reads as Offline rather
+        # than unavailable. This has to be a property: UponorGatewayEntity
+        # defines `available` as one, and that shadows `_attr_available`, which
+        # is all this class used to set.
+        return True
 
     @property
     def native_value(self):
@@ -140,7 +159,7 @@ class UponorFloorMinLimitSensor(UponorThermostatEntity, SensorEntity):
 
     @property
     def available(self):
-        return self._state_proxy.is_available() and self._state_proxy.has_floor_temperature(self._thermostat)
+        return super().available and self._state_proxy.has_floor_temperature(self._thermostat)
 
     @property
     def native_value(self):
@@ -161,7 +180,7 @@ class UponorFloorMaxLimitSensor(UponorThermostatEntity, SensorEntity):
 
     @property
     def available(self):
-        return self._state_proxy.is_available() and self._state_proxy.has_floor_temperature(self._thermostat)
+        return super().available and self._state_proxy.has_floor_temperature(self._thermostat)
 
     @property
     def native_value(self):
@@ -184,7 +203,11 @@ class UponorFloorTemperatureSensor(UponorThermostatEntity, SensorEntity):
 
     @property
     def available(self):
-        return self._state_proxy.is_available() and self._state_proxy.has_floor_temperature(self._thermostat)
+        # The probe is wired to the thermostat, so its value goes stale with it.
+        return (
+            self._state_proxy.has_live_readings(self._thermostat)
+            and self._state_proxy.has_floor_temperature(self._thermostat)
+        )
 
     @property
     def native_value(self):
@@ -203,6 +226,12 @@ class UponorRoomCurrentTemperatureSensor(UponorThermostatEntity, SensorEntity):
         self._attr_state_class = SensorStateClass.MEASUREMENT
 
     @property
+    def available(self):
+        # Unavailable rather than flat: while the controller has lost contact
+        # with the thermostat the gateway keeps repeating its last reading.
+        return self._state_proxy.has_live_readings(self._thermostat)
+
+    @property
     def native_value(self):
         return self._state_proxy.get_temperature(self._thermostat)
 
@@ -219,7 +248,10 @@ class UponorHumiditySensor(UponorThermostatEntity, SensorEntity):
     @property
     def available(self):
         """Return True if the sensor is available."""
-        return self._state_proxy.is_available() and self._state_proxy.has_humidity_sensor(self._thermostat)
+        return (
+            self._state_proxy.has_live_readings(self._thermostat)
+            and self._state_proxy.has_humidity_sensor(self._thermostat)
+        )
 
     @property
     def native_value(self):

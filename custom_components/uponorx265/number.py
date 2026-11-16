@@ -43,7 +43,7 @@ class UponorFloorLimitNumber(UponorThermostatEntity, NumberEntity):
 
     @property
     def available(self):
-        return self._state_proxy.is_available() and self._state_proxy.has_floor_temperature(self._thermostat)
+        return super().available and self._state_proxy.has_floor_temperature(self._thermostat)
 
 
 class FloorMinLimitNumber(UponorFloorLimitNumber):

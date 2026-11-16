@@ -48,7 +48,6 @@
           "c1_t10": "Namn på C1 Termostat 10",
           "c1_t11": "Namn på C1 Termostat 11",
           "c1_t12": "Namn på C1 Termostat 12",
-
           "c2_t1": "Namn på C2 Termostat 1",
           "c2_t2": "Namn på C2 Termostat 2",
           "c2_t3": "Namn på C2 Termostat 3",
@@ -61,7 +60,6 @@
           "c2_t10": "Namn på C2 Termostat 10",
           "c2_t11": "Namn på C2 Termostat 11",
           "c2_t12": "Namn på C2 Termostat 12",
-
           "c3_t1": "Namn på C3 Termostat 1",
           "c3_t2": "Namn på C3 Termostat 2",
           "c3_t3": "Namn på C3 Termostat 3",
@@ -74,7 +72,6 @@
           "c3_t10": "Namn på C3 Termostat 10",
           "c3_t11": "Namn på C3 Termostat 11",
           "c3_t12": "Namn på C3 Termostat 12",
-
           "c4_t1": "Namn på C4 Termostat 1",
           "c4_t2": "Namn på C4 Termostat 2",
           "c4_t3": "Namn på C4 Termostat 3",
@@ -91,7 +88,9 @@
       }
     },
     "error": {
-      "invalid_host": "Ogiltigt värdnamn eller IP-adress."
+      "cannot_connect": "Kunde inte ansluta till gatewayen på den här adressen. Kontrollera IP-adressen; om den stämmer kan R-208 ha slutat svara, och att bryta strömmen till den brukar hjälpa.",
+      "invalid_response": "En enhet svarade på den här adressen, men inte som en Uponor R-208-gateway.",
+      "unknown": "Oväntat fel. Se Home Assistant-loggen för detaljer."
     },
     "abort": {
       "already_configured": "Den här Uponor-gatewayen är redan konfigurerad.",
@@ -123,6 +122,32 @@
   "exceptions": {
     "temperature_not_controllable": {
       "message": "{room_name}: temperaturen styrs av det fysiska termostatvredet. Byt till förinställningen 'HA-styrd' för att ställa in temperaturen från Home Assistant."
+    }
+  },
+  "issues": {
+    "thermostat_contact_lost_wireless": {
+      "title": "{room_name}: ingen kontakt med termostaten",
+      "description": "Uponor-styrenheten har slutat ta emot signaler från termostaten i {room_name}. Styrenheten rapporterar det först efter ungefär en timme utan avläsning, så termostaten slutade fungera innan den här aviseringen visades.\n\nTills den rapporterar igen:\n- är dess avläsningar inte tillgängliga i Home Assistant, eftersom gatewayen bara upprepar de senaste värden den tog emot\n- reglerar styrenheten inte rummet mot börvärdet, utan kör det i reservläge med en fast cykel oavsett rumstemperaturen\n\nTermostaten kan se normal ut: displayen kan fortsätta visa den senaste avläsningen efter att termostaten har slutat fungera. Byt batterierna, eller ta ur dem och sätt tillbaka dem för att starta om den. Om den ändå inte återansluter, kontrollera att den är inom räckhåll för styrenheten.\n\nDen här aviseringen försvinner av sig själv när termostaten rapporterar igen."
+    },
+    "thermostat_contact_lost_wired": {
+      "title": "{room_name}: ingen kontakt med termostaten",
+      "description": "Uponor-styrenheten har slutat ta emot signaler från termostaten i {room_name}.\n\nTills den rapporterar igen:\n- är dess avläsningar inte tillgängliga i Home Assistant, eftersom gatewayen bara upprepar de senaste värden den tog emot\n- reglerar styrenheten inte rummet mot börvärdet, och kan i stället köra det i reservläge med en fast cykel\n\nKontrollera termostatens kabel till styrenheten och anslutningen i båda ändar.\n\nDen här aviseringen försvinner av sig själv när termostaten rapporterar igen."
+    },
+    "thermostat_contact_lost": {
+      "title": "{room_name}: ingen kontakt med termostaten",
+      "description": "Uponor-styrenheten har slutat ta emot signaler från termostaten i {room_name}.\n\nTills den rapporterar igen:\n- är dess avläsningar inte tillgängliga i Home Assistant, eftersom gatewayen bara upprepar de senaste värden den tog emot\n- reglerar styrenheten inte rummet mot börvärdet, och kan i stället köra det i reservläge med en fast cykel\n\nKontrollera att termostaten har ström och kan nå styrenheten. En termostat kan sluta fungera utan att det syns på dess display.\n\nDen här aviseringen försvinner av sig själv när termostaten rapporterar igen."
+    },
+    "gateway_unreachable": {
+      "title": "{name}: gatewayen svarar inte",
+      "description": "Home Assistant har inte fått något svar från Uponors kommunikationsmodul R-208 på {host} på över {minutes} minuter. Alla Uponor-entiteter är otillgängliga, och inget kan ändras från Home Assistant förrän den svarar igen. Styrenheterna fortsätter att styra rummen med de inställningar de redan har.\n\nKontrollera att:\n- R-208 har ström. Den får sin ström via kabeln till styrenheten, så en lös kabel i någon av ändarna, eller en styrenhet utan ström, gör också att den slutar svara\n- dess nätverkskabel är ansluten och att nätverket mellan den och Home Assistant fungerar\n- den fortfarande har adressen {host}. Om adressen har ändrats anger du den nya under **Konfigurera** på integrationens sida\n\nDen här aviseringen försvinner av sig själv när gatewayen svarar igen."
+    },
+    "main_controller_lost": {
+      "title": "{name}: gatewayen har tappat kontakten med styrenheten",
+      "description": "Uponors kommunikationsmodul R-208 svarar, men har inte haft kontakt med styrenheten den är ansluten till på över {minutes} minuter. Under tiden skickar den bara vidare platshållarvärden, så alla Uponor-entiteter för termostater och styrenheter är otillgängliga, och inget kan ändras från Home Assistant. Styrenheterna fortsätter att styra rummen med de inställningar de redan har.\n\nR-208 får sin ström via kabeln till styrenheten, och eftersom den svarar leder kabeln fortfarande ström. Kontrollera att kabeln sitter ordentligt i båda ändar och inte är skadad.\n\nDen här aviseringen försvinner av sig själv när gatewayen har kontakt med styrenheten igen."
+    },
+    "controller_lost": {
+      "title": "{controller_name}: ingen kontakt med styrenheten",
+      "description": "Uponors kommunikationsmodul R-208 har inte haft kontakt med {controller_name} på över {minutes} minuter. Termostaterna på den styrenheten är otillgängliga i Home Assistant tills den är tillbaka. Styrenheten fortsätter själv att styra sina rum med de inställningar den redan har, men om den har förlorat strömmen styr den inte rummen alls.\n\nKontrollera att {controller_name} har ström, och dess anslutning till huvudstyrenheten.\n\nDen här aviseringen försvinner av sig själv när gatewayen har kontakt med styrenheten igen."
     }
   },
   "entity": {
@@ -164,10 +189,12 @@
           "air_sensor_error": "Luftsensorfel",
           "ext_sensor_error": "Extern sensorfel",
           "rh_sensor_error": "Fuktighetssensorfel",
-          "rf_sensor_error": "RF-sensorfel",
+          "rf_sensor_error": "Ingen kontakt med termostaten",
+          "rf_low_signal": "Svag radiosignal",
           "tamper_error": "Manipuleringsfel",
-          "api_error": "API-fel",
-          "general_error": "Allmänt systemfel"
+          "api_error": "Ingen temperaturavläsning",
+          "general_error": "Allmänt systemfel",
+          "comfail_controller": "Ingen kontakt med styrenhet"
         }
       },
       "floor_temp": {

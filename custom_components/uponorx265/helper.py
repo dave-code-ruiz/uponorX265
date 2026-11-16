@@ -211,7 +211,9 @@ class UponorThermostatEntity(Entity):
 
     @property
     def available(self):
-        return self._state_proxy.is_available()
+        # Also False while the gateway reports this thermostat's controller
+        # lost: it still answers then, but with placeholder values.
+        return self._state_proxy.is_thermostat_available(self._thermostat)
 
     async def async_added_to_hass(self):
         self.async_on_remove(
@@ -252,7 +254,7 @@ class UponorControllerEntity(Entity):
 
     @property
     def available(self):
-        return self._state_proxy.is_available()
+        return self._state_proxy.is_controller_available(self._controller)
 
     @property
     def should_poll(self):
